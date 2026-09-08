@@ -124,14 +124,19 @@
 </div>
 
 <style>
+@page {
+    size: auto;
+    margin: 8mm 12mm;
+}
 @media print {
-    .no-print, header, .sidebar, nav {
+    .no-print, header, .top-header, .sidebar, nav, .user-dropdown-container, .toggle-btn, .page-title {
         display: none !important;
     }
-    body, .main-content, .content-area {
+    body, .main-content, .page-content, .content-area {
         margin: 0 !important;
         padding: 0 !important;
         background: #fff !important;
+        width: 100% !important;
     }
     .invoice-container {
         box-shadow: none !important;

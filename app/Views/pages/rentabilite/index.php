@@ -410,3 +410,28 @@
         </table>
     </div>
 </div>
+
+<style>
+@page {
+    size: auto;
+    margin: 8mm 12mm;
+}
+@media print {
+    .no-print, .sidebar, .top-header, .header, nav, footer, .user-dropdown-container, .toggle-btn {
+        display: none !important;
+    }
+    .main-content, .page-content {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+    }
+    body {
+        background: white !important;
+    }
+    .card {
+        box-shadow: none !important;
+        border: 1px solid #E2E8F0 !important;
+    }
+}
+</style>
+

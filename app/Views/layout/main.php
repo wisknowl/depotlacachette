@@ -3,7 +3,7 @@
  * Layout principal - Dépôt La Cachette
  */
 $currentUser = $_SESSION['user'] ?? ['username' => 'admin', 'full_name' => 'Administrateur', 'role' => 'Admin'];
-$isProduitsActive = isset($active_menu) && in_array($active_menu, ['produits', 'achats', 'ventes', 'stock', 'emballages']);
+$isProduitsActive = isset($active_menu) && in_array($active_menu, ['produits', 'achats', 'ventes', 'tournees', 'stock', 'emballages']);
 $hideSidebar = !empty($hide_sidebar);
 ?>
 <!DOCTYPE html>
@@ -97,6 +97,12 @@ $hideSidebar = !empty($hide_sidebar);
                             <a href="<?= BASE_URL ?>/ventes" class="<?= (isset($active_menu) && $active_menu == 'ventes') ? 'active' : '' ?>">
                                 <i class='bx bx-cart'></i>
                                 <span>Ventes & Facturation</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a href="<?= BASE_URL ?>/tournees" class="<?= (isset($active_menu) && $active_menu == 'tournees') ? 'active' : '' ?>">
+                                <i class='bx bx-trip'></i>
+                                <span>Ventes Route (Tournées)</span>
                             </a>
                         </li>
                         <li>

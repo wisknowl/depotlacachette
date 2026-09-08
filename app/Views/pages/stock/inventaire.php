@@ -335,11 +335,15 @@
 
 <!-- PRINT CSS STYLING -->
 <style>
+@page {
+    size: auto;
+    margin: 8mm 12mm;
+}
 @media print {
-    .no-print, .sidebar, .header, nav, footer, .sidebar-backdrop {
+    .no-print, .sidebar, .top-header, .header, nav, footer, .sidebar-backdrop, .user-dropdown-container, .toggle-btn, .page-title {
         display: none !important;
     }
-    .main-content {
+    .main-content, .page-content {
         margin: 0 !important;
         padding: 0 !important;
         width: 100% !important;

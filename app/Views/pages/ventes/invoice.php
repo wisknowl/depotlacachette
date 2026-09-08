@@ -263,20 +263,26 @@
 </div>
 
 <style>
+@page {
+    size: auto;
+    margin: 8mm 12mm;
+}
 @media print {
-    .no-print, .sidebar, .header, .page-title {
+    .no-print, .sidebar, .top-header, .header, .page-title, .user-dropdown-container, .toggle-btn {
         display: none !important;
     }
-    body, .main-content {
+    body, .main-content, .page-content {
         background: #FFF !important;
         padding: 0 !important;
         margin: 0 !important;
+        width: 100% !important;
     }
     .card {
         box-shadow: none !important;
         border: none !important;
         padding: 0 !important;
         max-width: 100% !important;
+        width: 100% !important;
     }
 }
 </style>

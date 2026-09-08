@@ -14,6 +14,19 @@
     color: #FFFFFF !important;
     box-shadow: 0 2px 4px rgba(0,0,0,0.12);
 }
+.pitem-qty, .pitem-empties {
+    min-width: 95px !important;
+    font-weight: 800 !important;
+    font-size: 1.05rem !important;
+    text-align: center !important;
+    padding: 6px 10px !important;
+}
+.pitem-price {
+    min-width: 110px !important;
+    font-weight: 700 !important;
+    text-align: right !important;
+    padding: 6px 8px !important;
+}
 .modal-backdrop-custom {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -121,12 +134,12 @@
                             <th style="min-width: 220px;">Produit / Boisson</th>
                             <th style="min-width: 120px;">Emballage & Vides Dispo</th>
                             <th style="min-width: 110px;">Format</th>
-                            <th style="min-width: 80px;">Stock</th>
-                            <th style="min-width: 110px;">Prix Liquide (FCFA)</th>
-                            <th style="min-width: 80px;">Qté Livrée</th>
-                            <th style="min-width: 110px;" title="Nombre de casiers vides remis immédiatement au camion de livraison">Vides Remis</th>
+                            <th style="min-width: 75px; text-align: center;">Stock</th>
+                            <th style="min-width: 115px; text-align: right;">Prix Liquide (FCFA)</th>
+                            <th style="min-width: 115px; text-align: center;">Qté Livrée</th>
+                            <th style="min-width: 115px; text-align: center;" title="Nombre de casiers vides remis immédiatement au camion de livraison">Vides Remis</th>
                             <th style="min-width: 210px;" title="Mode de règlement en cas de déficit de casiers vides (Consigne facturée vs Dette fournisseur)">Règlement Déficit Vides</th>
-                            <th style="min-width: 90px;" title="Ristourne unitaire attendue">Ristourne/U</th>
+                            <th style="min-width: 95px; text-align: right;" title="Ristourne unitaire attendue">Ristourne/U</th>
                             <th style="min-width: 130px; text-align: right;">Total Ligne (FCFA)</th>
                             <th style="min-width: 45px; text-align: center;">Action</th>
                         </tr>
@@ -384,7 +397,7 @@ function addNewPurchaseRow() {
             </div>
         </td>
         <td>
-            <select name="items[${purchaseRowCounter}][format_type]" class="form-control pitem-format" onchange="calculatePurchaseTotals()">
+            <select name="items[${purchaseRowCounter}][format_type]" class="form-control pitem-format" onchange="onPurchaseFormatChange(${purchaseRowCounter})">
                 <option value="casier">Entier (1.0)</option>
                 <option value="demi">Demi (0.5)</option>
             </select>
@@ -395,14 +408,14 @@ function addNewPurchaseRow() {
             </span>
         </td>
         <td>
-            <input type="number" step="any" min="0" name="items[${purchaseRowCounter}][unit_price]" class="form-control pitem-price" required placeholder="0" oninput="calculatePurchaseTotals()">
+            <input type="number" step="any" min="0" name="items[${purchaseRowCounter}][unit_price]" class="form-control pitem-price" required placeholder="0" oninput="calculatePurchaseTotals()" style="min-width: 105px; font-weight: 700; text-align: right; padding: 6px 8px;">
         </td>
         <td>
-            <input type="number" step="1" min="1" name="items[${purchaseRowCounter}][quantity]" class="form-control pitem-qty" required value="1" oninput="onPurchaseQtyChange(${purchaseRowCounter})">
+            <input type="number" step="1" min="1" name="items[${purchaseRowCounter}][quantity]" class="form-control pitem-qty" required value="1" oninput="onPurchaseQtyChange(${purchaseRowCounter})" style="min-width: 95px; font-weight: 800; font-size: 1.05rem; text-align: center; padding: 6px 8px; color: var(--c-navy-dark);">
         </td>
         <td>
             <div style="display: flex; flex-direction: column; gap: 2px;">
-                <input type="number" step="1" min="0" name="items[${purchaseRowCounter}][empties_returned]" class="form-control pitem-empties" value="0" oninput="onEmptiesReturnedChange(${purchaseRowCounter})">
+                <input type="number" step="1" min="0" name="items[${purchaseRowCounter}][empties_returned]" class="form-control pitem-empties" value="0" oninput="onEmptiesReturnedChange(${purchaseRowCounter})" style="min-width: 95px; font-weight: 700; font-size: 1rem; text-align: center; padding: 6px 8px;">
                 <small id="pitem_empty_warn_${purchaseRowCounter}" style="display: none; color: #DC2626; font-size: 0.7rem; font-weight: 700;"></small>
             </div>
         </td>
@@ -417,7 +430,7 @@ function addNewPurchaseRow() {
             </div>
         </td>
         <td>
-            <input type="number" step="any" min="0" name="items[${purchaseRowCounter}][ristourne_unit]" class="form-control pitem-ristourne" placeholder="0" value="0" oninput="calculatePurchaseTotals()" title="Ristourne unitaire accordée" disabled>
+            <input type="number" step="any" min="0" name="items[${purchaseRowCounter}][ristourne_unit]" class="form-control pitem-ristourne" placeholder="0" value="0" oninput="calculatePurchaseTotals()" title="Ristourne unitaire accordée" disabled style="min-width: 85px; font-weight: 700; text-align: right; padding: 6px 8px;">
         </td>
         <td style="text-align: right; font-weight: 800; font-size: 0.95rem; color: var(--c-navy-dark);" id="prow_total_${purchaseRowCounter}">
             0 FCFA
@@ -440,6 +453,100 @@ function removePurchaseRow(id) {
         refreshPurchaseFormatOptionsAcrossRows();
         calculatePurchaseTotals();
     }
+}
+
+function getRemainingEmptiesForPkg(pkgId, excludeRowId = null) {
+    if (!pkgId) return 0;
+    const prod = availableProducts.find(p => p.is_returnable && (p.packaging_type_id === pkgId || p.id === pkgId));
+    const totalStock = prod ? (prod.available_empty_crates || 0) : 0;
+
+    let used = 0;
+    const rows = document.querySelectorAll("#purchase_tbody tr");
+    rows.forEach(tr => {
+        if (excludeRowId && tr.id === `prow_${excludeRowId}`) return;
+        const prodSelect = tr.querySelector('.pitem-product');
+        const emptiesInput = tr.querySelector('.pitem-empties');
+        const pId = parseInt(prodSelect?.value) || 0;
+        const p = availableProducts.find(x => x.id === pId);
+        if (p && p.is_returnable && (p.packaging_type_id === pkgId || p.id === pkgId)) {
+            used += (parseFloat(emptiesInput?.value) || 0);
+        }
+    });
+
+    return Math.max(0, totalStock - used);
+}
+
+function syncAllEmptyCratesBadgesAndValidation() {
+    const rows = document.querySelectorAll("#purchase_tbody tr");
+    const pkgUsage = {};
+
+    rows.forEach(tr => {
+        const prodSelect = tr.querySelector('.pitem-product');
+        const emptiesInput = tr.querySelector('.pitem-empties');
+        const prodId = parseInt(prodSelect?.value) || 0;
+        const prod = availableProducts.find(p => p.id === prodId);
+        if (prod && prod.is_returnable) {
+            const pkgId = prod.packaging_type_id || prod.id;
+            const empties = parseFloat(emptiesInput?.value) || 0;
+            pkgUsage[pkgId] = (pkgUsage[pkgId] || 0) + empties;
+        }
+    });
+
+    rows.forEach(tr => {
+        const rowId = tr.id.replace('prow_', '');
+        const prodSelect = tr.querySelector('.pitem-product');
+        const qtyInput = tr.querySelector('.pitem-qty');
+        const emptiesInput = tr.querySelector('.pitem-empties');
+        const warn = document.getElementById(`pitem_empty_warn_${rowId}`);
+        const emptyStockSpan = document.getElementById(`pitem_empty_stock_${rowId}`);
+
+        const prodId = parseInt(prodSelect?.value) || 0;
+        const prod = availableProducts.find(p => p.id === prodId);
+        if (!prod || !prod.is_returnable) return;
+
+        const pkgId = prod.packaging_type_id || prod.id;
+        const totalStock = prod.available_empty_crates || 0;
+        const totalUsedAllRows = pkgUsage[pkgId] || 0;
+        const rowEmpties = parseFloat(emptiesInput?.value) || 0;
+        const rowQty = parseFloat(qtyInput?.value) || 0;
+        const usedByOthers = totalUsedAllRows - rowEmpties;
+        const availForThisRow = Math.max(0, totalStock - usedByOthers);
+
+        if (emptyStockSpan) {
+            if (usedByOthers > 0) {
+                emptyStockSpan.innerHTML = (availForThisRow > 0)
+                    ? `<span style="color: #16A34A;" title="Sur ${totalStock} casiers au total au dépôt">🟢 ${availForThisRow} v. dispo</span>`
+                    : `<span style="color: #DC2626;" title="Stock épuisé par les autres lignes">🔴 0 v. dispo</span>`;
+            } else {
+                emptyStockSpan.innerHTML = (availForThisRow > 0)
+                    ? `<span style="color: #16A34A;">🟢 ${availForThisRow} v. dispo</span>`
+                    : `<span style="color: #DC2626;">🔴 0 v. dispo</span>`;
+            }
+            emptyStockSpan.style.display = "inline-block";
+        }
+
+        if (rowEmpties > availForThisRow) {
+            emptiesInput.style.borderColor = "#DC2626";
+            emptiesInput.style.backgroundColor = "#FEF2F2";
+            if (warn) {
+                warn.innerText = `⛔ Stock dépassé : max ${availForThisRow} c.`;
+                warn.style.display = "block";
+            }
+        } else if (rowEmpties > rowQty) {
+            emptiesInput.style.borderColor = "#DC2626";
+            emptiesInput.style.backgroundColor = "#FEF2F2";
+            if (warn) {
+                warn.innerText = `⛔ Max livrés : ${rowQty} c.`;
+                warn.style.display = "block";
+            }
+        } else {
+            emptiesInput.style.borderColor = "";
+            emptiesInput.style.backgroundColor = "";
+            if (warn) {
+                warn.style.display = "none";
+            }
+        }
+    });
 }
 
 function onPurchaseProductChange(id) {
@@ -491,10 +598,11 @@ function onPurchaseProductChange(id) {
     }
 
     stockBadge.innerText = `${prod.stock} emb.`;
-    priceInput.value = prod.purchase_price || 0;
+    priceInput.value = (formatSelect.value === 'demi') ? (prod.purchase_price / 2) : (prod.purchase_price || 0);
 
     if (prod.is_returnable) {
-        const avail = prod.available_empty_crates || 0;
+        const pkgId = prod.packaging_type_id || prod.id;
+        const avail = getRemainingEmptiesForPkg(pkgId, id);
         embBadge.innerHTML = `<span style="color: #16A34A; font-weight: 700;">🟢 Consigné</span>`;
         emptyStockSpan.innerHTML = (avail > 0) ? `<span style="color: #16A34A;">🟢 ${avail} v. dispo</span>` : `<span style="color: #DC2626;">🔴 0 v. dispo</span>`;
         emptyStockSpan.style.display = "inline-block";
@@ -513,7 +621,6 @@ function onPurchaseProductChange(id) {
         modeSelect.disabled = true;
     }
 
-    onEmptiesReturnedChange(id);
     onPurchaseFormatChange(id);
 }
 
@@ -521,7 +628,11 @@ function onPurchaseFormatChange(id) {
     const row = document.getElementById(`prow_${id}`);
     const prodSelect = row.querySelector('.pitem-product');
     const formatSelect = row.querySelector('.pitem-format');
+    const priceInput = row.querySelector('.pitem-price');
     const qtyInput = row.querySelector('.pitem-qty');
+
+    const prodId = parseInt(prodSelect.value) || 0;
+    const prod = availableProducts.find(p => p.id === prodId);
 
     const format = formatSelect.value;
     if (format === 'demi') {
@@ -530,12 +641,18 @@ function onPurchaseFormatChange(id) {
         qtyInput.style.backgroundColor = "#F1F5F9";
         qtyInput.style.cursor = "not-allowed";
         qtyInput.title = "En demi-casier, la quantité est strictement fixée à 1.";
+        if (prod) {
+            priceInput.value = (prod.purchase_price / 2);
+        }
     } else {
         qtyInput.readOnly = false;
         qtyInput.style.backgroundColor = "";
         qtyInput.style.cursor = "";
         qtyInput.title = "";
         if (parseFloat(qtyInput.value) <= 0) qtyInput.value = 1;
+        if (prod) {
+            priceInput.value = prod.purchase_price || 0;
+        }
     }
 
     refreshPurchaseFormatOptionsAcrossRows();
@@ -583,8 +700,8 @@ function onPurchaseQtyChange(id) {
     const qty = parseFloat(qtyInput.value) || 0;
 
     if (prod && prod.is_returnable && !emptiesInput.disabled) {
-        const avail = prod.available_empty_crates || 0;
-        // Smart default: min(qty, available)
+        const pkgId = prod.packaging_type_id || prod.id;
+        const avail = getRemainingEmptiesForPkg(pkgId, id);
         emptiesInput.value = Math.min(qty, avail);
     }
 
@@ -592,40 +709,6 @@ function onPurchaseQtyChange(id) {
 }
 
 function onEmptiesReturnedChange(id) {
-    const row = document.getElementById(`prow_${id}`);
-    const prodSelect = row.querySelector('.pitem-product');
-    const qtyInput = row.querySelector('.pitem-qty');
-    const emptiesInput = row.querySelector('.pitem-empties');
-    const warn = document.getElementById(`pitem_empty_warn_${id}`);
-
-    const prodId = parseInt(prodSelect.value) || 0;
-    const prod = availableProducts.find(p => p.id === prodId);
-    const qty = parseFloat(qtyInput.value) || 0;
-    const empties = parseFloat(emptiesInput.value) || 0;
-    const avail = prod ? (prod.available_empty_crates || 0) : 0;
-
-    if (prod && prod.is_returnable) {
-        if (empties > avail) {
-            emptiesInput.style.borderColor = "#DC2626";
-            emptiesInput.style.backgroundColor = "#FEF2F2";
-            warn.innerText = `⛔ Stock max : ${avail} c.`;
-            warn.style.display = "block";
-        } else if (empties > qty) {
-            emptiesInput.style.borderColor = "#DC2626";
-            emptiesInput.style.backgroundColor = "#FEF2F2";
-            warn.innerText = `⛔ Max livrés : ${qty} c.`;
-            warn.style.display = "block";
-        } else {
-            emptiesInput.style.borderColor = "";
-            emptiesInput.style.backgroundColor = "";
-            warn.style.display = "none";
-        }
-    } else {
-        emptiesInput.style.borderColor = "";
-        emptiesInput.style.backgroundColor = "";
-        warn.style.display = "none";
-    }
-
     calculatePurchaseTotals();
 }
 
@@ -744,6 +827,7 @@ function calculatePurchaseTotals() {
     document.getElementById("purchase_total_ristourne").innerText = new Intl.NumberFormat('fr-FR').format(totalExpectedRistourne) + " FCFA";
     document.getElementById("purchase_grand_total").innerText = new Intl.NumberFormat('fr-FR').format(grandTotal) + " FCFA";
 
+    syncAllEmptyCratesBadgesAndValidation();
     validatePurchaseGuards(validLines, hasEmptiesOverdraft);
 }
 

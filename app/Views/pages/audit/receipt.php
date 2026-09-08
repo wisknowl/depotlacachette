@@ -8,11 +8,15 @@
 </div>
 
 <style>
+@page {
+    size: auto;
+    margin: 8mm 12mm;
+}
 @media print {
-    .no-print, .sidebar, .topbar { display: none !important; }
-    .main-content { margin-left: 0 !important; padding: 0 !important; }
+    .no-print, .sidebar, .top-header, .topbar, .user-dropdown-container, .toggle-btn, .page-title { display: none !important; }
+    .main-content, .page-content { margin-left: 0 !important; padding: 0 !important; width: 100% !important; }
     body { background: white !important; }
-    .receipt-container { box-shadow: none !important; border: 1px solid #ccc !important; }
+    .receipt-container { box-shadow: none !important; border: 1px solid #ccc !important; width: 100% !important; max-width: 100% !important; }
 }
 </style>
 

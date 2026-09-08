@@ -20,6 +20,7 @@ class VentesModel {
                 pm.type as payment_method_type,
                 ca.name as cash_account_name,
                 u.username,
+                t.reference as tournee_reference,
                 COUNT(si.id) as item_count,
                 COALESCE(GROUP_CONCAT(CONCAT(p.name, ' (', si.quantity, ' ', CASE WHEN si.format_type = 'demi' THEN 'Demi' ELSE 'Casier' END, ')') SEPARATOR ', '), 'Aucun article') as products_summary
             FROM sales v
@@ -27,6 +28,7 @@ class VentesModel {
             LEFT JOIN payment_methods pm ON v.payment_method_id = pm.id
             LEFT JOIN cash_accounts ca ON v.cash_account_id = ca.id
             LEFT JOIN users u ON v.user_id = u.id
+            LEFT JOIN tournees t ON v.tournee_id = t.id
             LEFT JOIN sale_items si ON v.id = si.sale_id
             LEFT JOIN products p ON si.product_id = p.id
             WHERE 1=1
@@ -34,8 +36,9 @@ class VentesModel {
         $params = [];
 
         if (!empty($filters['search'])) {
-            $sql .= " AND (v.id LIKE ? OR v.reference LIKE ? OR c.name LIKE ? OR v.notes LIKE ?)";
+            $sql .= " AND (v.id LIKE ? OR v.reference LIKE ? OR c.name LIKE ? OR v.notes LIKE ? OR t.reference LIKE ?)";
             $term = '%' . trim($filters['search']) . '%';
+            $params[] = $term;
             $params[] = $term;
             $params[] = $term;
             $params[] = $term;
@@ -45,6 +48,16 @@ class VentesModel {
         if (!empty($filters['client_id'])) {
             $sql .= " AND v.client_id = ?";
             $params[] = intval($filters['client_id']);
+        }
+
+        if (!empty($filters['sale_type'])) {
+            $sql .= " AND v.sale_type = ?";
+            $params[] = trim($filters['sale_type']);
+        }
+
+        if (!empty($filters['tournee_id'])) {
+            $sql .= " AND v.tournee_id = ?";
+            $params[] = intval($filters['tournee_id']);
         }
 
         if (!empty($filters['payment_mode'])) {
@@ -70,7 +83,7 @@ class VentesModel {
         }
 
         $sql .= "
-            GROUP BY v.id, v.sale_date, v.client_id, v.total_amount, v.payment_method_id, v.cash_account_id, v.reference, v.notes, v.user_id, v.status, v.created_at, c.name, pm.name, pm.type, ca.name, u.username
+            GROUP BY v.id, v.sale_date, v.client_id, v.total_amount, v.payment_method_id, v.cash_account_id, v.reference, v.notes, v.user_id, v.tournee_id, v.sale_type, v.status, v.created_at, c.name, pm.name, pm.type, ca.name, u.username, t.reference
             ORDER BY v.sale_date DESC, v.created_at DESC
         ";
 
@@ -89,12 +102,14 @@ class VentesModel {
                 pm.name as payment_method_name,
                 pm.type as payment_method_type,
                 ca.name as cash_account_name,
-                u.username
+                u.username,
+                t.reference as tournee_reference
             FROM sales v
             LEFT JOIN clients c ON v.client_id = c.id
             LEFT JOIN payment_methods pm ON v.payment_method_id = pm.id
             LEFT JOIN cash_accounts ca ON v.cash_account_id = ca.id
             LEFT JOIN users u ON v.user_id = u.id
+            LEFT JOIN tournees t ON v.tournee_id = t.id
             WHERE v.id = ?
         ");
         $stmt->execute([$id]);
@@ -249,6 +264,8 @@ class VentesModel {
     }
 
     public function add($data) {
+        $userId = intval($data['user_id'] ?? ($_SESSION['user']['id'] ?? 1));
+        
         // 1. Extract Items List (Multi-item support with single item fallback)
         $rawItems = $data['items'] ?? [];
         if (empty($rawItems) && !empty($data['product_id'])) {
@@ -267,6 +284,8 @@ class VentesModel {
         // Validate each item and calculate stock equivalents & total
         $processedItems = [];
         $totalAmount = 0;
+        $requestedStockByProduct = [];
+        $productsStockMap = [];
 
         foreach ($rawItems as $idx => $item) {
             $prodId = intval($item['product_id'] ?? 0);
@@ -274,28 +293,22 @@ class VentesModel {
             $formatType = in_array($item['format_type'] ?? '', ['casier', 'demi']) ? $item['format_type'] : 'casier';
             $unitPrice = floatval($item['unit_price'] ?? 0);
 
-            if ($prodId <= 0) continue;
-            if ($qty <= 0) {
-                throw new \Exception("La quantité du produit à la ligne " . ($idx + 1) . " doit être supérieure à 0.");
-            }
+            if ($prodId <= 0 || $qty <= 0) continue;
             if ($unitPrice <= 0) {
                 throw new \Exception("Le prix unitaire à la ligne " . ($idx + 1) . " doit être supérieur à 0 FCFA.");
             }
 
-            $product = $this->getProductStock($prodId);
-            if (!$product) {
-                throw new \Exception("Article à la ligne " . ($idx + 1) . " introuvable.");
+            if (!isset($productsStockMap[$prodId])) {
+                $product = $this->getProductStock($prodId);
+                if (!$product) {
+                    throw new \Exception("Article à la ligne " . ($idx + 1) . " introuvable.");
+                }
+                $productsStockMap[$prodId] = $product;
             }
+            $product = $productsStockMap[$prodId];
 
-            $currentStock = floatval($product['current_stock']);
             $stockEquivalent = ($formatType === 'demi') ? ($qty * 0.5) : $qty;
-
-            if ($currentStock <= 0) {
-                throw new \Exception("Rupture de stock pour '" . htmlspecialchars($product['name']) . "' (Stock: 0).");
-            }
-            if ($stockEquivalent > $currentStock) {
-                throw new \Exception("Stock insuffisant pour '" . htmlspecialchars($product['name']) . "'. Demandé : {$stockEquivalent} casiers, Disponible : {$currentStock} casiers.");
-            }
+            $requestedStockByProduct[$prodId] = ($requestedStockByProduct[$prodId] ?? 0) + $stockEquivalent;
 
             $lineTotal = $qty * $unitPrice;
             $totalAmount += $lineTotal;
@@ -356,6 +369,49 @@ class VentesModel {
             throw new \Exception("Aucun article valide dans la facture de vente.");
         }
 
+        $tourneeId = !empty($data['tournee_id']) ? intval($data['tournee_id']) : null;
+        $saleType = (!empty($data['sale_type']) && in_array($data['sale_type'], ['comptoir', 'route'])) ? $data['sale_type'] : ($tourneeId ? 'route' : 'comptoir');
+
+        // Validate aggregated stock per product across all rows
+        if ($tourneeId) {
+            // Check truck loaded stock
+            foreach ($requestedStockByProduct as $pId => $totalReq) {
+                $stmtTourneeItem = $this->db->prepare("
+                    SELECT ti.qty_loaded,
+                           COALESCE((
+                               SELECT SUM(si.quantity) 
+                               FROM sale_items si 
+                               JOIN sales s ON si.sale_id = s.id 
+                               WHERE s.tournee_id = ti.tournee_id 
+                                 AND s.status = 'Valid' 
+                                 AND si.product_id = ti.product_id
+                           ), 0) as already_sold
+                    FROM tournee_items ti
+                    WHERE ti.tournee_id = ? AND ti.product_id = ?
+                ");
+                $stmtTourneeItem->execute([$tourneeId, $pId]);
+                $tItem = $stmtTourneeItem->fetch();
+                if (!$tItem) {
+                    throw new \Exception("Le produit '" . htmlspecialchars($productsStockMap[$pId]['name']) . "' n'a pas été chargé sur le camion de cette tournée.");
+                }
+                $truckAvailable = floatval($tItem['qty_loaded']) - floatval($tItem['already_sold']);
+                if ($totalReq > $truckAvailable) {
+                    throw new \Exception("Stock camion insuffisant pour '" . htmlspecialchars($productsStockMap[$pId]['name']) . "'. Demandé sur cette facture : {$totalReq} casier(s), Restant sur camion : {$truckAvailable} casier(s).");
+                }
+            }
+        } else {
+            // Check warehouse stock for regular counter sales
+            foreach ($requestedStockByProduct as $pId => $totalReq) {
+                $curStock = floatval($productsStockMap[$pId]['current_stock']);
+                if ($curStock <= 0) {
+                    throw new \Exception("Rupture de stock pour '" . htmlspecialchars($productsStockMap[$pId]['name']) . "' (Stock: 0).");
+                }
+                if ($totalReq > $curStock) {
+                    throw new \Exception("Stock magasin insuffisant pour '" . htmlspecialchars($productsStockMap[$pId]['name']) . "'. Demandé au total : {$totalReq} casier(s), Disponible : {$curStock} casier(s).");
+                }
+            }
+        }
+
         $client = $this->getClient($data['client_id']);
         if (!$client) {
             throw new \Exception("Client sélectionné introuvable.");
@@ -389,8 +445,8 @@ class VentesModel {
             $amountDue = $avoirUsed + $cashShortage;
             $cashAccountId = intval($data['cash_account_id'] ?? 0);
             $accountInfo = $this->getCashAccount($cashAccountId);
-            if (!$accountInfo && $amountPaid > 0) throw new \Exception("Compte d'encaissement invalide.");
-            $paymentMethodId = ($cashShortage > 0) ? ($amountPaid > 0 ? 1 : 5) : ($accountInfo['payment_method_id'] ?: 1);
+            if (!$accountInfo && $amountPaid > 0 && empty($tourneeId)) throw new \Exception("Compte d'encaissement invalide.");
+            $paymentMethodId = ($cashShortage > 0) ? ($amountPaid > 0 ? 1 : 5) : ($accountInfo['payment_method_id'] ?? 1);
         }
 
         if ($isFullCredit || ($amountPaid < $netPayableCash)) {
@@ -402,15 +458,15 @@ class VentesModel {
         $this->db->beginTransaction();
         try {
             $id = $this->generateSaleId();
-            $userId = $data['user_id'] ?? 1;
 
             $stmt = $this->db->prepare("
-                INSERT INTO sales (id, sale_date, client_id, total_amount, discount_amount, avoir_used, amount_paid, amount_due, payment_method_id, cash_account_id, reference, notes, user_id, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Valid')
+                INSERT INTO sales (id, sale_date, client_id, total_amount, discount_amount, avoir_used, amount_paid, amount_due, payment_method_id, cash_account_id, reference, notes, user_id, tournee_id, sale_type, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Valid')
             ");
             $stmt->execute([
                 $id, $data['sale_date'], $client['id'], $subTotal, $discountAmount, $avoirUsed, $amountPaid, $amountDue,
-                $paymentMethodId, $cashAccountId, $data['reference'] ?: $id, $data['notes'] ?? '', $userId
+                $paymentMethodId, $cashAccountId, !empty($data['reference']) ? $data['reference'] : $id, $data['notes'] ?? '', $userId,
+                $tourneeId, $saleType
             ]);
 
 
@@ -438,17 +494,22 @@ class VentesModel {
                     $item['crates_out'], $item['bottles_out'], $item['crates_returned'], $item['bottles_returned']
                 ]);
 
-                $stmtStockMov->execute([
-                    $data['sale_date'], $item['product_id'], $item['format_id'] ?? 1, $item['format_type'],
-                    $id, $item['quantity'], $item['stock_equivalent'], $item['unit_price'], 'Vente ' . $id, $userId
-                ]);
+                // Deduct from warehouse stock movement ONLY if NOT a route sale
+                // (For route sales, stock already left the warehouse during morning truck loading)
+                if (empty($tourneeId)) {
+                    $stmtStockMov->execute([
+                        $data['sale_date'], $item['product_id'], $item['format_id'] ?? 1, $item['format_type'],
+                        $id, $item['quantity'], $item['stock_equivalent'], $item['unit_price'], 'Vente ' . $id, $userId
+                    ]);
+                }
 
                 if ($item['is_returnable'] && !empty($item['packaging_type_id'])) {
                     $pkgTypeId = intval($item['packaging_type_id']);
                     $productStock = $this->getProductStock($item['product_id']);
                     $factor = max(1, intval($productStock['factor'] ?: 12));
 
-                    if ($item['crates_returned'] > 0 || $item['bottles_returned'] > 0) {
+                    // For counter sales, returned empties go directly into depot emballage stock
+                    if (empty($tourneeId) && ($item['crates_returned'] > 0 || $item['bottles_returned'] > 0)) {
                         $this->db->prepare("UPDATE emballage_stock SET empty_crates = empty_crates + ?, loose_bottles = loose_bottles + ? WHERE packaging_type_id = ?")
                                  ->execute([$item['crates_returned'], $item['bottles_returned'], $pkgTypeId]);
                         $this->db->prepare("INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, client_id, crates_in, bottles_in, notes, created_by) VALUES (?, 'Client_Return', ?, ?, ?, ?, ?, ?)")
@@ -466,20 +527,23 @@ class VentesModel {
                 }
             }
 
-            if ($amountPaid > 0 && $cashAccountId) {
+            // Cash transaction for counter sales: deposited directly
+            // (For route sales, cash collected by driver is deposited during the evening Décharge)
+            if (empty($tourneeId) && $amountPaid > 0 && $cashAccountId) {
                 $this->db->prepare("INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id) VALUES (?, 'Sale', ?, ?, ?, ?, 0.00, ?)")
                          ->execute([$data['sale_date'] . ' ' . date('H:i:s'), $id, 'Vente ' . $id . ' (' . $client['name'] . ')', $cashAccountId, $amountPaid, $userId]);
             }
 
             $this->db->commit();
             return $id;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $this->db->rollBack();
             throw $e;
         }
     }
 
     public function addRetailSale($data) {
+        $userId = intval($data['user_id'] ?? ($_SESSION['user']['id'] ?? 1));
         $rawItems = $data['items'] ?? [];
         if (empty($rawItems)) {
             throw new \Exception("Veuillez ajouter au moins une boisson au panier de vente au détail.");
@@ -691,7 +755,7 @@ class VentesModel {
 
             $this->db->commit();
             return $id;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $this->db->rollBack();
             throw $e;
         }
@@ -754,7 +818,7 @@ class VentesModel {
             }
             $this->db->commit();
             return true;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $this->db->rollBack();
             throw $e;
         }

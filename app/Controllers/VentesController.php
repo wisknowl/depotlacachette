@@ -11,6 +11,7 @@ class VentesController extends Controller {
         $search = trim($_GET['search'] ?? '');
         $clientId = !empty($_GET['client_id']) ? intval($_GET['client_id']) : null;
         $paymentMode = trim($_GET['payment_mode'] ?? 'all');
+        $saleType = trim($_GET['sale_type'] ?? 'all');
         $cashAccountId = !empty($_GET['cash_account_id']) ? intval($_GET['cash_account_id']) : null;
         $period = trim($_GET['period'] ?? '');
         $startDate = $_GET['start_date'] ?? '';
@@ -50,6 +51,7 @@ class VentesController extends Controller {
             'search' => $search,
             'client_id' => $clientId,
             'payment_mode' => ($paymentMode !== 'all') ? $paymentMode : null,
+            'sale_type' => ($saleType !== 'all') ? $saleType : null,
             'cash_account_id' => $cashAccountId,
             'start_date' => $startDate,
             'end_date' => $endDate
@@ -80,6 +82,7 @@ class VentesController extends Controller {
             'filterSearch' => $search,
             'filterClientId' => $clientId,
             'filterPaymentMode' => $paymentMode,
+            'filterSaleType' => $saleType,
             'filterCashAccountId' => $cashAccountId,
             'filterPeriod' => $period,
             'filterStartDate' => $startDate,
@@ -91,12 +94,30 @@ class VentesController extends Controller {
     }
 
     public function form() {
+        $tourneeId = !empty($_GET['tournee_id']) ? intval($_GET['tournee_id']) : null;
+        $tournee = null;
+        $products = [];
+        if ($tourneeId) {
+            $tModel = new \App\Models\TourneesModel();
+            $tournee = $tModel->getById($tourneeId);
+            if ($tournee) {
+                $products = $tModel->getTourneeProductsForSale($tourneeId);
+            }
+        }
+
+        if (empty($tournee)) {
+            $products = $this->model->getProducts();
+        }
+
         $this->view('pages/ventes/form', [
-            'title' => 'Nouvelle Vente Multi-Produits',
-            'active_menu' => 'ventes',
+            'title' => $tournee ? ('Saisie Vente Carnet - ' . $tournee['reference']) : 'Nouvelle Vente Multi-Produits',
+            'active_menu' => $tournee ? 'tournees' : 'ventes',
             'clients' => $this->model->getClients(),
-            'products' => $this->model->getProducts(),
+            'products' => $products,
             'cash_accounts' => $this->model->getCashAccountsWithBalances(),
+            'tournee' => $tournee,
+            'tournee_id' => $tourneeId,
+            'is_tournee' => !empty($tournee),
             'flash_error' => $_SESSION['ventes_error'] ?? null,
             'flash_old' => $_SESSION['ventes_old'] ?? []
         ]);
@@ -136,6 +157,7 @@ class VentesController extends Controller {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $userId = $_SESSION['user']['id'] ?? 1;
+                $tourneeId = !empty($_POST['tournee_id']) ? intval($_POST['tournee_id']) : null;
                 
                 // Parse Multi-item Lines
                 $items = [];
@@ -178,17 +200,25 @@ class VentesController extends Controller {
                     'reference' => trim($_POST['reference'] ?? ''),
                     'notes' => trim($_POST['notes'] ?? ''),
                     'user_id' => $userId,
+                    'tournee_id' => $tourneeId,
+                    'sale_type' => $tourneeId ? 'route' : 'comptoir',
                     'items' => $items
                 ];
 
                 $saleId = $this->model->add($data);
                 \App\Core\Helper::logAudit('CREATE', 'Ventes', $saleId, "Création de la facture de vente {$saleId} (" . ($data['settlement_type'] === 'credit' ? 'Crédit' : 'Comptant') . ")", null, $data);
                 $_SESSION['flash_success'] = "Vente " . $saleId . " enregistrée avec succès !";
-                $this->redirect('ventes/invoice/' . $saleId);
+                
+                if ($tourneeId) {
+                    $this->redirect('tournees/details/' . $tourneeId);
+                } else {
+                    $this->redirect('ventes/invoice/' . $saleId);
+                }
             } catch (\Exception $e) {
                 $_SESSION['ventes_error'] = $e->getMessage();
                 $_SESSION['ventes_old'] = $_POST;
-                $this->redirect('ventes/form');
+                $tourneeParam = !empty($_POST['tournee_id']) ? ('?tournee_id=' . intval($_POST['tournee_id'])) : '';
+                $this->redirect('ventes/form' . $tourneeParam);
             }
         }
     }

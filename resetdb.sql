@@ -12,6 +12,9 @@ SET FOREIGN_KEY_CHECKS = 0;
 DELETE FROM `sale_items`;
 ALTER TABLE `sale_items` AUTO_INCREMENT = 1;
 
+DELETE FROM `tournee_items`;
+ALTER TABLE `tournee_items` AUTO_INCREMENT = 1;
+
 DELETE FROM `purchase_items`;
 ALTER TABLE `purchase_items` AUTO_INCREMENT = 1;
 
@@ -31,8 +34,10 @@ ALTER TABLE `cash_closings` AUTO_INCREMENT = 1;
 -- 2. PURGE DES TRANSACTIONS PARENTES, DETTES ET RÈGLEMENTS (NIVEAU 2)
 -- ------------------------------------------------------------------------------
 DELETE FROM `client_emballage_debts`;
+ALTER TABLE `client_emballage_debts` AUTO_INCREMENT = 1;
 
 DELETE FROM `supplier_emballage_debts`;
+ALTER TABLE `supplier_emballage_debts` AUTO_INCREMENT = 1;
 
 DELETE FROM `client_payments`;
 ALTER TABLE `client_payments` AUTO_INCREMENT = 1;
@@ -47,6 +52,9 @@ DELETE FROM `expenses`;
 ALTER TABLE `expenses` AUTO_INCREMENT = 1;
 
 DELETE FROM `sales`;
+
+DELETE FROM `tournees`;
+ALTER TABLE `tournees` AUTO_INCREMENT = 1;
 
 DELETE FROM `purchases`;
 

@@ -82,6 +82,16 @@
             </select>
         </div>
 
+        <!-- CANAL (COMPTOIR / ROUTE) -->
+        <div style="flex: 1; min-width: 140px;">
+            <label class="form-label" style="font-size: 0.82rem; margin-bottom: 4px; color: #64748B;">Canal de Vente</label>
+            <select name="sale_type" class="form-control" style="font-size: 0.88rem;">
+                <option value="all">-- Tous les canaux --</option>
+                <option value="comptoir" <?= (($filterSaleType ?? '') === 'comptoir') ? 'selected' : '' ?>>🏪 Comptoir (Dépôt)</option>
+                <option value="route" <?= (($filterSaleType ?? '') === 'route') ? 'selected' : '' ?>>🚚 Vente Route (Tournée)</option>
+            </select>
+        </div>
+
         <!-- CASH ACCOUNT -->
         <div style="flex: 1.2; min-width: 150px;">
             <label class="form-label" style="font-size: 0.82rem; margin-bottom: 4px; color: #64748B;">Compte d'Encaissement</label>
@@ -112,7 +122,7 @@
             <button type="submit" class="btn btn-accent" style="padding: 8px 16px; font-size: 0.88rem;">
                 <i class='bx bx-filter-alt'></i> Filtrer
             </button>
-            <?php if (!empty($filterSearch) || !empty($filterClientId) || ($filterPaymentMode !== 'all' && !empty($filterPaymentMode)) || !empty($filterCashAccountId) || !empty($filterStartDate) || !empty($filterEndDate) || !empty($filterPeriod)): ?>
+            <?php if (!empty($filterSearch) || !empty($filterClientId) || ($filterPaymentMode !== 'all' && !empty($filterPaymentMode)) || ($filterSaleType !== 'all' && !empty($filterSaleType)) || !empty($filterCashAccountId) || !empty($filterStartDate) || !empty($filterEndDate) || !empty($filterPeriod)): ?>
                 <a href="<?= BASE_URL ?>/ventes" class="btn btn-primary" style="padding: 8px 12px; font-size: 0.88rem; background: #64748B;" title="Réinitialiser les filtres">
                     <i class='bx bx-reset'></i>
                 </a>
@@ -200,12 +210,24 @@
                     <?php 
                         $isCredit = ($v['payment_method_id'] == 5); 
                         $isValid = ($v['status'] === 'Valid');
+                        $isRoute = ($v['sale_type'] === 'route');
                     ?>
                     <tr style="<?= !$isValid ? 'opacity: 0.65; background: #FFF5F5;' : '' ?>">
                         <td>
                             <a href="<?= BASE_URL ?>/ventes/invoice/<?= $v['id'] ?>" style="font-weight: 800; color: var(--c-navy); text-decoration: none;">
                                 <?= htmlspecialchars($v['id']) ?>
                             </a>
+                            <div>
+                                <?php if ($isRoute): ?>
+                                    <span style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; background: #EEF2FF; color: #4338CA; border: 1px solid #C7D2FE; border-radius: 4px; font-size: 0.7rem; font-weight: 700; margin-top: 3px;">
+                                        <i class='bx bx-car'></i> Route <?= htmlspecialchars($v['tournee_reference'] ?? '') ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; background: #F8FAFC; color: #475569; border: 1px solid #E2E8F0; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-top: 3px;">
+                                        <i class='bx bx-store'></i> Comptoir
+                                    </span>
+                                <?php endif; ?>
+                            </div>
                         </td>
                         <td><?= date('d/m/Y', strtotime($v['sale_date'])) ?></td>
                         <td><strong><?= htmlspecialchars($v['client_name']) ?></strong></td>

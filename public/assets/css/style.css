@@ -664,3 +664,74 @@ ul {
         width: 100%;
     }
 }
+
+/* ==========================================================
+   GLOBAL PRINT STYLES
+   ========================================================== */
+@media print {
+    /* Hide all application navigation, headers, footers and UI controls */
+    .top-header,
+    .sidebar,
+    .sidebar-backdrop,
+    .no-print,
+    .btn-print,
+    .toggle-btn,
+    .user-dropdown-container,
+    .user-dropdown-menu,
+    .user-info,
+    .topbar,
+    .header,
+    .page-title,
+    nav,
+    footer,
+    #sidebar,
+    #sidebar-toggle,
+    #user-dropdown-container {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Reset layouts for clean print canvas */
+    html, body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 11pt !important;
+        width: 100% !important;
+    }
+
+    .app-container,
+    .main-content,
+    .page-content,
+    .container,
+    .content-area {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-shadow: none !important;
+        border: none !important;
+    }
+
+    .card,
+    .invoice-container,
+    .receipt-container,
+    .printable-card {
+        box-shadow: none !important;
+        border: none !important;
+        padding: 0 !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        margin: 0 auto !important;
+    }
+
+    /* Page break optimization */
+    tr, .table-row, .info-grid, .signatures {
+        page-break-inside: avoid !important;
+    }
+}
+

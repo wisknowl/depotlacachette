@@ -14,6 +14,19 @@
     color: #FFFFFF !important;
     box-shadow: 0 2px 4px rgba(0,0,0,0.12);
 }
+.item-qty, .item-crates-ret, .item-bottles-ret {
+    min-width: 90px !important;
+    font-weight: 800 !important;
+    font-size: 1.05rem !important;
+    text-align: center !important;
+    padding: 6px 8px !important;
+}
+.item-price {
+    min-width: 110px !important;
+    font-weight: 700 !important;
+    text-align: right !important;
+    padding: 6px 8px !important;
+}
 .modal-backdrop-custom {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -50,7 +63,26 @@
     </div>
 <?php endif; ?>
 
+<?php if (!empty($tournee)): ?>
+    <div style="background: #E0F2FE; border: 1.5px solid #0284C7; border-radius: 8px; padding: 12px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <i class='bx bx-trip' style="font-size: 1.6rem; color: #0284C7;"></i>
+            <div>
+                <strong style="color: #0369A1; font-size: 0.95rem;">Vente Rattachée à la Tournée <?= htmlspecialchars($tournee['reference']) ?> (Vente Route)</strong>
+                <span style="display: block; font-size: 0.8rem; color: #475569;">Chauffeur : <strong><?= htmlspecialchars($tournee['driver_name']) ?></strong> &bull; Véhicule : <?= htmlspecialchars($tournee['vehicle_name']) ?></span>
+            </div>
+        </div>
+        <a href="<?= BASE_URL ?>/tournees/details/<?= $tournee['id'] ?>" class="btn btn-primary" style="padding: 5px 12px; font-size: 0.8rem; background: #0284C7;">
+            <i class='bx bx-arrow-back'></i> Retour au Hub Tournée
+        </a>
+    </div>
+<?php endif; ?>
+
 <form action="<?= BASE_URL ?>/ventes/save" method="POST" id="ventes_multi_form">
+    <?php if (!empty($tournee_id)): ?>
+        <input type="hidden" name="tournee_id" value="<?= intval($tournee_id) ?>">
+        <input type="hidden" name="sale_type" value="route">
+    <?php endif; ?>
     
     <!-- TOP SECTION: CLIENT & DATE -->
     <div class="card" style="margin-bottom: 20px;">
@@ -135,11 +167,11 @@
                             <th style="min-width: 220px;">Produit / Boisson</th>
                             <th style="min-width: 105px;">Emballage</th>
                             <th style="min-width: 120px;">Format</th>
-                            <th style="min-width: 90px;">Stock</th>
-                            <th style="min-width: 110px;">Prix Unit (FCFA)</th>
-                            <th style="min-width: 80px;">Quantité</th>
-                            <th style="min-width: 100px;" title="Casiers vides rapportés par le client (Échange 1 pour 1 par défaut)">Casiers Rendus</th>
-                            <th style="min-width: 100px;" title="Bouteilles individuelles en vrac rendues par le client">Btl Vrac Rendues</th>
+                            <th style="min-width: 85px; text-align: center;">Stock</th>
+                            <th style="min-width: 115px; text-align: right;">Prix Unit (FCFA)</th>
+                            <th style="min-width: 110px; text-align: center;">Quantité</th>
+                            <th style="min-width: 110px; text-align: center;" title="Casiers vides rapportés par le client (Échange 1 pour 1 par défaut)">Casiers Rendus</th>
+                            <th style="min-width: 110px; text-align: center;" title="Bouteilles individuelles en vrac rendues par le client">Btl Vrac Rendues</th>
                             <?php if (\App\Core\Helper::isAdmin()): ?>
                                 <th style="min-width: 80px; text-align: center;" title="Cocher pour mettre à jour le prix officiel du catalogue pour cette boisson">🏷️ MàJ Cat.</th>
                             <?php endif; ?>
@@ -503,6 +535,7 @@
 
 <!-- DATA PASSING TO JAVASCRIPT -->
 <script>
+const isTourneeSale = <?= !empty($is_tournee) ? 'true' : 'false' ?>;
 const availableProducts = <?= json_encode(array_map(function($p) {
     return [
         'id' => intval($p['id']),
@@ -539,8 +572,11 @@ function addNewProductRow() {
         const outOfStock = (p.stock <= 0);
         const retIcon = p.is_returnable ? '🟢' : '⚪';
         const codePrefix = p.short_code ? `[${p.short_code}] ` : '';
+        const stockLabel = isTourneeSale 
+            ? (outOfStock ? '⛔ [ÉPUISÉ SUR CAMION 0]' : `[Camion: ${p.stock} dispo]`)
+            : (outOfStock ? '⛔ [RUPTURE 0]' : `[Stock: ${p.stock}]`);
         optionsHtml += `<option value="${p.id}" ${outOfStock ? 'disabled' : ''}>
-            ${retIcon} ${codePrefix}${p.name} (${p.format_name}) ${outOfStock ? '⛔ [RUPTURE 0]' : `[Stock: ${p.stock}]`}
+            ${retIcon} ${codePrefix}${p.name} (${p.format_name}) ${stockLabel}
         </option>`;
     });
 
@@ -578,16 +614,16 @@ function addNewProductRow() {
             </span>
         </td>
         <td>
-            <input type="number" step="any" min="0" name="items[${rowCounter}][unit_price]" class="item-price form-control" required placeholder="0" oninput="calculateTotals()">
+            <input type="number" step="any" min="0" name="items[${rowCounter}][unit_price]" class="item-price form-control" required placeholder="0" oninput="calculateTotals()" style="min-width: 105px; font-weight: 700; text-align: right; padding: 6px 8px;">
         </td>
         <td>
-            <input type="number" step="1" min="1" name="items[${rowCounter}][quantity]" class="item-qty form-control" required value="1" oninput="onQtyChange(${rowCounter})">
+            <input type="number" step="1" min="1" name="items[${rowCounter}][quantity]" class="item-qty form-control" required value="1" oninput="onQtyChange(${rowCounter})" style="min-width: 90px; font-weight: 800; font-size: 1.05rem; text-align: center; padding: 6px 8px; color: var(--c-navy-dark);">
         </td>
         <td>
-            <input type="number" step="1" min="0" name="items[${rowCounter}][crates_returned]" class="item-crates-ret form-control" value="1" placeholder="0" oninput="calculateTotals()" title="Casiers vides rapportés (1 pour 1 par défaut)">
+            <input type="number" step="1" min="0" name="items[${rowCounter}][crates_returned]" class="item-crates-ret form-control" value="1" placeholder="0" oninput="calculateTotals()" title="Casiers vides rapportés (1 pour 1 par défaut)" style="min-width: 90px; font-weight: 700; font-size: 1rem; text-align: center; padding: 6px 8px;">
         </td>
         <td>
-            <input type="number" step="1" min="0" name="items[${rowCounter}][bottles_returned]" class="item-bottles-ret form-control" value="0" placeholder="0" oninput="calculateTotals()" title="Bouteilles en vrac rapportées">
+            <input type="number" step="1" min="0" name="items[${rowCounter}][bottles_returned]" class="item-bottles-ret form-control" value="0" placeholder="0" oninput="calculateTotals()" title="Bouteilles en vrac rapportées" style="min-width: 90px; font-weight: 700; font-size: 1rem; text-align: center; padding: 6px 8px;">
         </td>
         ${adminCatCell}
         <td style="text-align: right; font-weight: 800; font-size: 1.05rem; color: var(--c-navy-dark);" id="row_total_${rowCounter}">
@@ -832,7 +868,8 @@ function onProductChange(id) {
         formatSelect.value = 'casier';
     }
 
-    stockBadge.innerText = `${prod.stock} emb.`;
+    const stockUnit = isTourneeSale ? 'camion' : 'emb.';
+    stockBadge.innerText = `${prod.stock} ${stockUnit}`;
     if (prod.stock <= 0) {
         stockBadge.style.background = "#FEE2E2";
         stockBadge.style.color = "#DC2626";
@@ -976,7 +1013,24 @@ function calculateTotals() {
     let validLines = 0;
     let hasStockError = false;
 
+    // 1. Calculate aggregated stock equivalent requested per product
+    const requestedStockByProd = {};
     const rows = document.querySelectorAll("#items_tbody tr");
+    rows.forEach(tr => {
+        const prodSelect = tr.querySelector('.item-product');
+        const formatSelect = tr.querySelector('.item-format');
+        const qtyInput = tr.querySelector('.item-qty');
+        const prodId = parseInt(prodSelect?.value) || 0;
+        const qty = parseFloat(qtyInput?.value) || 0;
+        const format = formatSelect?.value || 'casier';
+        const equiv = (format === "demi") ? (qty * 0.5) : qty;
+
+        if (prodId > 0 && qty > 0) {
+            requestedStockByProd[prodId] = (requestedStockByProd[prodId] || 0) + equiv;
+        }
+    });
+
+    // 2. Validate rows against aggregated total and compute totals
     rows.forEach(tr => {
         const prodSelect = tr.querySelector('.item-product');
         const formatSelect = tr.querySelector('.item-format');
@@ -1004,19 +1058,22 @@ function calculateTotals() {
             const equiv = (format === "demi") ? (qty * 0.5) : qty;
             totalCasiersEquiv += equiv;
 
-            // Stock check guard
-            if (equiv > prod.stock) {
+            // Aggregated stock check guard
+            const totalRequested = requestedStockByProd[prodId] || 0;
+            const stockUnit = isTourneeSale ? 'camion' : 'emb.';
+            if (totalRequested > prod.stock) {
                 hasStockError = true;
                 if (stockBadge) {
                     stockBadge.style.background = "#FEE2E2";
                     stockBadge.style.color = "#DC2626";
-                    stockBadge.innerText = `⛔ Dispo: ${prod.stock}`;
+                    const dispoPrefix = isTourneeSale ? "Dispo camion" : "Dispo";
+                    stockBadge.innerText = `⛔ ${dispoPrefix}: ${prod.stock} (Demandé: ${totalRequested})`;
                 }
             } else {
                 if (stockBadge) {
                     stockBadge.style.background = "#DCFCE7";
                     stockBadge.style.color = "#16A34A";
-                    stockBadge.innerText = `${prod.stock} emb.`;
+                    stockBadge.innerText = `${prod.stock} ${stockUnit}`;
                 }
             }
         }
