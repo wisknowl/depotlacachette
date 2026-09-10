@@ -193,7 +193,7 @@
             <thead>
                 <tr>
                     <th>N° Facture</th>
-                    <th>Date</th>
+                    <th>Date & Heure</th>
                     <th>Client</th>
                     <th>Articles & Conditionnements</th>
                     <th>Montant Total</th>
@@ -229,7 +229,14 @@
                                 <?php endif; ?>
                             </div>
                         </td>
-                        <td><?= date('d/m/Y', strtotime($v['sale_date'])) ?></td>
+                        <td>
+                            <div style="font-weight: 700; color: #1E293B; white-space: nowrap;">
+                                <?= date('d/m/Y', strtotime($v['sale_date'])) ?>
+                            </div>
+                            <div style="font-size: 0.78rem; color: #64748B; margin-top: 2px; white-space: nowrap;">
+                                <i class='bx bx-time-five' style="font-size: 0.82rem; vertical-align: middle;"></i> <?= !empty($v['created_at']) ? date('H:i', strtotime($v['created_at'])) : '--:--' ?>
+                            </div>
+                        </td>
                         <td><strong><?= htmlspecialchars($v['client_name']) ?></strong></td>
                         <td>
                             <div style="font-weight: 600; color: var(--c-navy-dark); font-size: 0.9rem;">
@@ -254,7 +261,14 @@
                             <?php endif; ?>
                         </td>
                         <td>
-                            <?php if ($isValid): ?>
+                            <?php 
+                                $isTourneeOpen = $isRoute && !empty($v['tournee_id']) && (strtolower($v['tournee_status'] ?? '') !== 'cloturee');
+                            ?>
+                            <?php if ($isValid && $isTourneeOpen): ?>
+                                <span style="padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 800; background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;" title="Vente en cours de tournée : décharge non encore effectuée">
+                                    🟡 En tournée
+                                </span>
+                            <?php elseif ($isValid): ?>
                                 <span style="padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 800; background: #DCFCE7; color: #166534;">
                                     Validée
                                 </span>
@@ -270,9 +284,18 @@
                                     <i class='bx bx-printer'></i>
                                 </a>
                                 <?php if ($isValid && \App\Core\Helper::isAdmin()): ?>
-                                    <a href="<?= BASE_URL ?>/ventes/cancel/<?= $v['id'] ?>" class="btn btn-primary" style="padding: 4px 9px; font-size: 0.85rem; background-color: var(--c-danger);" onclick="return confirm('Annuler la facture <?= $v['id'] ?> ?\n\nLe stock vendu sera réintégré et la caisse/crédit sera rééquilibré automatiquement.')" title="Annuler la facture (Admin)">
-                                        <i class='bx bx-x-circle'></i>
-                                    </a>
+                                    <?php 
+                                        $isClosedTournee = !empty($v['tournee_id']) && in_array(strtolower($v['tournee_status'] ?? ''), ['cloturee', 'clôturée', 'closed']);
+                                    ?>
+                                    <?php if ($isClosedTournee): ?>
+                                        <span class="btn" style="padding: 4px 8px; font-size: 0.78rem; background: #F8FAFC; color: #94A3B8; border: 1px solid #E2E8F0; cursor: not-allowed; display: inline-flex; align-items: center; gap: 3px;" title="Vente issue de la tournée <?= htmlspecialchars($v['tournee_reference'] ?? '') ?> clôturée et soldée : cette facture ne peut plus être annulée.">
+                                            <i class='bx bx-lock-alt'></i> Clôturée
+                                        </span>
+                                    <?php else: ?>
+                                        <a href="<?= BASE_URL ?>/ventes/cancel/<?= $v['id'] ?>" class="btn btn-primary" style="padding: 4px 9px; font-size: 0.85rem; background-color: var(--c-danger);" onclick="return confirm('Annuler la facture <?= $v['id'] ?> ?\n\nLe stock vendu sera réintégré et la caisse/crédit sera rééquilibré automatiquement.')" title="Annuler la facture (Admin)">
+                                            <i class='bx bx-x-circle'></i>
+                                        </a>
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             </div>
                         </td>

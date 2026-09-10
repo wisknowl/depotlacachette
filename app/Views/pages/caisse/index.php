@@ -145,6 +145,7 @@ $isAdmin = ($currentUserRole === 'Admin');
             <select name="type" class="form-control" style="font-size: 0.88rem;">
                 <option value="">-- Toutes les opérations --</option>
                 <option value="Sale" <?= (($filterType ?? '') === 'Sale') ? 'selected' : '' ?>>🟢 Vente</option>
+                <option value="Tournee" <?= (($filterType ?? '') === 'Tournee') ? 'selected' : '' ?>>🚚 Tournée (Versement & Annulation)</option>
                 <option value="ClientPayment" <?= (($filterType ?? '') === 'ClientPayment') ? 'selected' : '' ?>>🔵 Règlement Client</option>
                 <option value="Deposit" <?= (($filterType ?? '') === 'Deposit') ? 'selected' : '' ?>>💵 Apport / Alimentation</option>
                 <option value="Purchase" <?= (($filterType ?? '') === 'Purchase') ? 'selected' : '' ?>>🟡 Achat Fournisseur</option>
@@ -152,6 +153,7 @@ $isAdmin = ($currentUserRole === 'Admin');
                 <option value="SupplierPayment" <?= (($filterType ?? '') === 'SupplierPayment') ? 'selected' : '' ?>>🟣 Paiement Fournisseur</option>
                 <option value="Payroll" <?= (($filterType ?? '') === 'Payroll') ? 'selected' : '' ?>>💼 Paie Personnel</option>
                 <option value="Transfer" <?= (($filterType ?? '') === 'Transfer') ? 'selected' : '' ?>>🔄 Transfert</option>
+                <option value="Withdrawal" <?= (($filterType ?? '') === 'Withdrawal') ? 'selected' : '' ?>>📤 Retrait</option>
             </select>
         </div>
 
@@ -270,6 +272,12 @@ $isAdmin = ($currentUserRole === 'Admin');
                                 echo "<span style='{$badgeStyle} background: #FCE7F3; color: #9D174D;'>🟣 Paiement Fournisseur</span>";
                             } elseif ($t['transaction_type'] === 'Deposit') {
                                 echo "<span style='{$badgeStyle} background: #DCFCE7; color: #166534;'>💵 Apport / Alimentation</span>";
+                            } elseif ($t['transaction_type'] === 'Tournee') {
+                                if (floatval($t['amount_in']) > 0) {
+                                    echo "<span style='{$badgeStyle} background: #ECFDF5; color: #047857;'>🚚 Versement Tournée</span>";
+                                } else {
+                                    echo "<span style='{$badgeStyle} background: #FEF2F2; color: #B91C1C;'>↩️ Annulation Tournée</span>";
+                                }
                             } elseif ($t['transaction_type'] === 'Transfer') {
                                 echo "<span style='{$badgeStyle} background: #F3E8FF; color: #6B21A8;'>🔄 Transfert</span>";
                             } elseif ($t['transaction_type'] === 'Payroll') {
@@ -305,6 +313,15 @@ $isAdmin = ($currentUserRole === 'Admin');
                             <?php elseif ($t['transaction_type'] === 'Payroll' && !empty($t['source_id'])): ?>
                                 <a href="<?= BASE_URL ?>/payroll/receipt/<?= htmlspecialchars($t['source_id']) ?>" style="font-weight: 700; color: #854D0E; text-decoration: none;" title="Voir le Bulletin de Paie">
                                     <i class='bx bx-user-check'></i> <?= htmlspecialchars($t['source_id']) ?>
+                                </a>
+                            <?php elseif ($t['transaction_type'] === 'Tournee' && !empty($t['source_id'])): ?>
+                                <?php 
+                                    $tourRef = !empty($t['tournee_reference']) 
+                                        ? $t['tournee_reference'] 
+                                        : (preg_match('/TR\d+/', $t['description'] ?? '', $matches) ? $matches[0] : 'TR' . str_pad($t['source_id'], 5, '0', STR_PAD_LEFT));
+                                ?>
+                                <a href="<?= BASE_URL ?>/tournees/details/<?= htmlspecialchars($t['source_id']) ?>" style="font-weight: 700; color: #047857; text-decoration: none; display: inline-flex; align-items: center; gap: 3px;" title="Voir la Fiche Décharge Tournée <?= htmlspecialchars($tourRef) ?>">
+                                    <i class='bx bx-trip'></i> <?= htmlspecialchars($tourRef) ?>
                                 </a>
                             <?php else: ?>
                                 <span style="color: #64748B; font-weight: 600;"><?= htmlspecialchars($t['source_id'] ?: '-') ?></span>

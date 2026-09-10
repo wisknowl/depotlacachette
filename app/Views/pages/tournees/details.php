@@ -61,7 +61,7 @@ foreach ($sales as $s) {
         if ($s['payment_method_id'] == 5) {
             $totalCreditFromSales += floatval($s['total_amount']);
         } else {
-            $totalCashFromSales += floatval($s['amount_paid'] ?: $s['total_amount']);
+            $totalCashFromSales += floatval($s['amount_paid'] ?: $s['total_amount']) + floatval($s['excess_amount'] ?? 0);
         }
     }
 }
@@ -120,8 +120,11 @@ foreach ($sales as $s) {
                 $sumLoadedQty = 0;
                 $sumLoadedVal = 0;
                 foreach ($items as $it): 
-                    $sumLoadedQty += $it['qty_loaded'];
-                    $lineVal = $it['qty_loaded'] * $it['unit_price'];
+                    $hasDemi = !empty($it['has_demi']) || ($it['format_type'] === 'demi');
+                    $qtyCrates = intval($it['qty_loaded']);
+                    $equiv = floatval($it['stock_equivalent'] ?? ($qtyCrates + ($hasDemi ? 0.5 : 0.0)));
+                    $sumLoadedQty += $equiv;
+                    $lineVal = ($qtyCrates * $it['unit_price']) + ($hasDemi ? floatval($it['demi_unit_price'] ?: ($it['unit_price'] / 2)) : 0);
                     $sumLoadedVal += $lineVal;
                 ?>
                 <tr>
@@ -131,9 +134,25 @@ foreach ($sales as $s) {
                             <small style="color: #64748B;">[<?= htmlspecialchars($it['short_code']) ?>]</small>
                         <?php endif; ?>
                     </td>
-                    <td><?= ($it['format_type'] === 'demi') ? 'Demi (0.5)' : 'Entier (1.0)' ?></td>
+                    <td>
+                        <?php if ($qtyCrates > 0 && $hasDemi): ?>
+                            <span class="badge" style="background: #E0F2FE; color: #0369A1; font-weight: 700;">Casier + Demi</span>
+                        <?php elseif ($hasDemi): ?>
+                            <span class="badge" style="background: #FEF3C7; color: #B45309; font-weight: 700;">Demi (0.5)</span>
+                        <?php else: ?>
+                            <span class="badge" style="background: #F1F5F9; color: #475569; font-weight: 700;">Casier (Entier)</span>
+                        <?php endif; ?>
+                    </td>
                     <td><?= htmlspecialchars($it['packaging_name'] ?: 'Perdu / Pack') ?></td>
-                    <td style="text-align: center; font-weight: 800; font-size: 1rem; color: #0284C7;"><?= $it['qty_loaded'] ?></td>
+                    <td style="text-align: center; font-weight: 800; font-size: 1rem; color: #0284C7;">
+                        <?php if ($hasDemi && $qtyCrates > 0): ?>
+                            <?= $qtyCrates ?> c. + Demi <span style="font-size: 0.8rem; color: #64748B; font-weight: normal;">(<?= $equiv ?> eq.)</span>
+                        <?php elseif ($hasDemi): ?>
+                            0 c. + Demi <span style="font-size: 0.8rem; color: #64748B; font-weight: normal;">(0.5 eq.)</span>
+                        <?php else: ?>
+                            <?= $qtyCrates ?> c.
+                        <?php endif; ?>
+                    </td>
                     <td style="text-align: right;"><?= number_format($it['unit_price'], 0, ',', ' ') ?> F</td>
                     <td style="text-align: right; font-weight: 700;"><?= number_format($lineVal, 0, ',', ' ') ?> FCFA</td>
                 </tr>
@@ -184,10 +203,15 @@ foreach ($sales as $s) {
                     </td>
                 </tr>
                 <?php else: ?>
-                    <?php foreach ($sales as $s): ?>
-                    <tr>
+                    <?php foreach ($sales as $s): 
+                        $isCancelled = ($s['status'] === 'Cancelled');
+                    ?>
+                    <tr style="<?= $isCancelled ? 'background: #FEF2F2; opacity: 0.8;' : '' ?>">
                         <td>
-                            <strong style="color: #0284C7;"><?= htmlspecialchars($s['id']) ?></strong>
+                            <strong style="color: <?= $isCancelled ? '#94A3B8' : '#0284C7' ?>; <?= $isCancelled ? 'text-decoration: line-through;' : '' ?>"><?= htmlspecialchars($s['id']) ?></strong>
+                            <?php if ($isCancelled): ?>
+                                <span class="badge" style="background: #FEE2E2; color: #DC2626; font-size: 0.72rem; margin-left: 4px; font-weight: 700;">Annulée</span>
+                            <?php endif; ?>
                         </td>
                         <td>
                             <strong><?= htmlspecialchars($s['client_name'] ?: 'Client Comptoir') ?></strong>
@@ -195,17 +219,22 @@ foreach ($sales as $s) {
                         <td>
                             <small style="color: #475569;"><?= htmlspecialchars($s['items_summary']) ?></small>
                         </td>
-                        <td style="text-align: right; font-weight: 700;">
+                        <td style="text-align: right; font-weight: 700; <?= $isCancelled ? 'text-decoration: line-through; color: #94A3B8;' : '' ?>">
                             <?= number_format($s['total_amount'], 0, ',', ' ') ?> F
                         </td>
-                        <td style="text-align: right; font-weight: 700; color: #16A34A;">
+                        <td style="text-align: right; font-weight: 700; color: <?= $isCancelled ? '#94A3B8' : '#16A34A' ?>; <?= $isCancelled ? 'text-decoration: line-through;' : '' ?>">
                             <?= number_format($s['payment_method_id'] == 5 ? 0 : ($s['amount_paid'] ?: $s['total_amount']), 0, ',', ' ') ?> F
+                            <?php if (floatval($s['excess_amount'] ?? 0) > 0): ?>
+                                <div style="font-size: 0.72rem; color: #D97706; font-weight: 700;">(+<?= number_format($s['excess_amount'], 0, ',', ' ') ?> F Avoir)</div>
+                            <?php endif; ?>
                         </td>
-                        <td style="text-align: right; font-weight: 700; color: <?= $s['amount_due'] > 0 ? '#DC2626' : '#64748B' ?>;">
+                        <td style="text-align: right; font-weight: 700; color: <?= $isCancelled ? '#94A3B8' : ($s['amount_due'] > 0 ? '#DC2626' : '#64748B') ?>; <?= $isCancelled ? 'text-decoration: line-through;' : '' ?>">
                             <?= number_format($s['amount_due'] ?: ($s['payment_method_id'] == 5 ? $s['total_amount'] : 0), 0, ',', ' ') ?> F
                         </td>
                         <td style="text-align: center;">
-                            <?php if ($s['payment_method_id'] == 5): ?>
+                            <?php if ($isCancelled): ?>
+                                <span style="background: #FEE2E2; color: #DC2626; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">Annulée</span>
+                            <?php elseif ($s['payment_method_id'] == 5): ?>
                                 <span style="background: #FEF3C7; color: #D97706; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">Crédit</span>
                             <?php else: ?>
                                 <span style="background: #DCFCE7; color: #16A34A; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">Comptant</span>
@@ -243,39 +272,66 @@ foreach ($sales as $s) {
                     <thead>
                         <tr style="background: #F1F5F9;">
                             <th>Boisson</th>
-                            <th>Format</th>
-                            <th style="text-align: center;">Chargé le Matin</th>
+                            <th>Emballage</th>
+                            <th style="text-align: center;">Chargé Matin</th>
                             <th style="text-align: center;">Vendu sur Factures</th>
                             <th style="text-align: center;">Attendu en Camion</th>
-                            <th style="text-align: center; width: 170px; background: #E0F2FE;">Invendus au Magasin <span style="color: #DC2626;">*</span></th>
+                            <th style="text-align: center; min-width: 220px; background: #E0F2FE; color: #000000">Invendus Physiques au Magasin <span style="color: #DC2626;">*</span></th>
                             <th style="text-align: center;">Écart / Manquant</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($items as $it): 
+                            $hasDemiLoaded = !empty($it['has_demi']) || ($it['format_type'] === 'demi');
+                            $loadedEquiv = floatval($it['stock_equivalent'] ?? ($it['qty_loaded'] + ($hasDemiLoaded ? 0.5 : 0.0)));
                             $actualSold = floatval($it['calculated_qty_sold'] ?? 0);
-                            $theoreticalReturn = max(0, floatval($it['qty_loaded']) - $actualSold);
+                            $theoreticalReturn = max(0, $loadedEquiv - $actualSold);
+                            
+                            // Toujours pré-remplir avec la quantité exacte attendue en camion (Attendu en Camion)
+                            $defaultReturnCrates = floor($theoreticalReturn);
+                            $defaultReturnHasDemi = ($theoreticalReturn - $defaultReturnCrates) >= 0.49 ? 1 : 0;
                         ?>
                         <tr>
                             <td>
                                 <strong><?= htmlspecialchars($it['product_name']) ?></strong>
                             </td>
-                            <td><?= ($it['format_type'] === 'demi') ? 'Demi (0.5)' : 'Entier (1.0)' ?></td>
-                            <td style="text-align: center; font-weight: 700;"><?= $it['qty_loaded'] ?></td>
-                            <td style="text-align: center; font-weight: 700; color: #0284C7;"><?= $actualSold ?></td>
-                            <td style="text-align: center; font-weight: 800; font-size: 1.05rem; color: #1E293B;">
-                                <span id="theo_return_<?= $it['id'] ?>"><?= $theoreticalReturn ?></span>
+                            <td><small style="color: #64748B;"><?= htmlspecialchars($it['packaging_name'] ?: 'Perdu / Pack') ?></small></td>
+                            <td style="text-align: center; font-weight: 700;">
+                                <?= $loadedEquiv ?> c.
+                                <?php if ($hasDemiLoaded): ?>
+                                    <br><small style="color: #64748B; font-weight: normal;"><?= intval($it['qty_loaded']) ?> c. + Demi</small>
+                                <?php endif; ?>
                             </td>
-                            <td style="text-align: center; background: #F0F9FF;">
-                                <input type="number" step="any" min="0" name="returns[<?= $it['id'] ?>]" 
-                                       id="input_return_<?= $it['id'] ?>"
-                                       class="form-control decharge-return-input" 
-                                       value="<?= $theoreticalReturn ?>" 
-                                       data-item-id="<?= $it['id'] ?>"
-                                       data-loaded="<?= $it['qty_loaded'] ?>"
-                                       data-sold="<?= $actualSold ?>"
-                                       style="text-align: center; font-weight: 800; font-size: 1rem; border: 2px solid #0284C7;"
-                                       oninput="calculateDechargeShortages()">
+                            <td style="text-align: center; font-weight: 700; color: #0284C7;">
+                                <?= $actualSold ?> c.
+                            </td>
+                            <td style="text-align: center; font-weight: 800; font-size: 1.05rem; color: #1E293B;">
+                                <span id="theo_return_<?= $it['id'] ?>"><?= $theoreticalReturn ?> c.</span>
+                            </td>
+                            <td style="text-align: center; background: #F0F9FF; padding: 8px;">
+                                <div style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
+                                    <div style="display: flex; align-items: center; gap: 4px;">
+                                        <input type="number" min="0" step="1" name="returns[<?= $it['id'] ?>][crates]" 
+                                               id="input_return_crates_<?= $it['id'] ?>"
+                                               class="form-control decharge-return-crates" 
+                                               value="<?= $defaultReturnCrates ?>" 
+                                               data-item-id="<?= $it['id'] ?>"
+                                               data-loaded="<?= $loadedEquiv ?>"
+                                               data-sold="<?= $actualSold ?>"
+                                               style="text-align: center; font-weight: 800; font-size: 1rem; width: 75px; border: 2px solid #0284C7;"
+                                               oninput="calculateDechargeShortages()">
+                                        <span style="font-size: 0.8rem; font-weight: 600; color: #475569;">casier(s)</span>
+                                    </div>
+                                    <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.82rem; font-weight: 700; cursor: pointer; background: #E0F2FE; padding: 4px 8px; border-radius: 4px; border: 1px solid #BAE6FD; margin: 0;">
+                                        <input type="checkbox" name="returns[<?= $it['id'] ?>][has_demi]" value="1"
+                                               id="input_return_demi_<?= $it['id'] ?>"
+                                               class="decharge-return-demi"
+                                               data-item-id="<?= $it['id'] ?>"
+                                               <?= $defaultReturnHasDemi ? 'checked' : '' ?>
+                                               onchange="calculateDechargeShortages()">
+                                        <span>+ 1 Demi</span>
+                                    </label>
+                                </div>
                             </td>
                             <td style="text-align: center;">
                                 <span id="shortage_badge_<?= $it['id'] ?>" style="font-weight: 700; font-size: 0.88rem; color: #16A34A;">
@@ -291,23 +347,53 @@ foreach ($sales as $s) {
     </div>
 
     <!-- COMPTAGE CASIERS VIDES RAPPORTÉS -->
+    <?php
+    $returnedSummaryByPkg = [];
+    if (!empty($emballagesReturnedSummary)) {
+        foreach ($emballagesReturnedSummary as $es) {
+            $returnedSummaryByPkg[$es['packaging_type_id']] = $es;
+        }
+    }
+    ?>
     <div class="card" style="margin-bottom: 25px;">
-        <div class="card-header">
-            <span><i class='bx bx-archive'></i> 4. Réintégration des Casiers Vides Rapportés par le Camion</span>
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <span><i class='bx bx-archive'></i> 4. Réintégration des Casiers Vides & Bouteilles Rapportés par le Camion</span>
+            <small style="color: #64748B; font-weight: 600;">Stock dépôt (`emballage_stock`)</small>
         </div>
         <div class="card-body">
             <p style="color: #64748B; font-size: 0.85rem; margin-bottom: 15px;">
-                Indiquez le nombre de <strong>casiers vides physiques</strong> déchargés du camion pour alimenter le parc de vides du dépôt (`emballage_stock`).
+                Indiquez les <strong>casiers complets</strong> et <strong>bouteilles en vrac</strong> physiquement déchargés du camion pour alimenter le parc de vides du dépôt. Les quantités sont pré-remplies d'après les factures du carnet saisies.
             </p>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
-                <?php foreach ($packagingTypes as $pt): ?>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px;">
+                <?php foreach ($packagingTypes as $pt): 
+                    $summary = $returnedSummaryByPkg[$pt['id']] ?? null;
+                    $prefillCrates = $summary ? intval($summary['total_crates_returned']) : 0;
+                    $prefillBottles = $summary ? intval($summary['total_bottles_returned']) : 0;
+                ?>
                 <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px 16px;">
-                    <strong style="font-size: 0.9rem; color: #1E293B; display: block;"><?= htmlspecialchars($pt['name']) ?></strong>
-                    <span style="font-size: 0.78rem; color: #64748B;"><?= htmlspecialchars($pt['color']) ?> &bull; Actuel en dépôt : <?= $pt['empty_crates'] ?> c.</span>
-                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
-                        <label style="font-size: 0.82rem; font-weight: 700; color: #475569; white-space: nowrap;">Vides ramenés :</label>
-                        <input type="number" min="0" step="1" name="empty_crates_returned[<?= $pt['id'] ?>]" class="form-control" value="0" style="font-weight: 700; text-align: center; width: 100px;">
-                        <span style="font-size: 0.82rem; color: #64748B;">casier(s)</span>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+                        <strong style="font-size: 0.92rem; color: #1E293B;"><?= htmlspecialchars($pt['name']) ?></strong>
+                        <span style="font-size: 0.75rem; background: #F1F5F9; color: #475569; padding: 2px 6px; border-radius: 4px;"><?= htmlspecialchars($pt['company'] ?: 'Dépôt') ?></span>
+                    </div>
+                    <div style="font-size: 0.78rem; color: #64748B; margin-bottom: 10px;">
+                        <?= htmlspecialchars($pt['color']) ?> &bull; Actuel en dépôt : <strong><?= $pt['empty_crates'] ?> c. & <?= $pt['loose_bottles'] ?> btls</strong>
+                    </div>
+
+                    <?php if ($prefillCrates > 0 || $prefillBottles > 0): ?>
+                        <div style="background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; padding: 4px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 4px;">
+                            <i class='bx bx-check-circle'></i> Sur factures carnet : <strong><?= $prefillCrates ?> casier(s) & <?= $prefillBottles ?> btl(s)</strong>
+                        </div>
+                    <?php endif; ?>
+
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <label style="font-size: 0.8rem; font-weight: 700; color: #475569;">Casiers :</label>
+                            <input type="number" min="0" step="1" name="empty_crates_returned[<?= $pt['id'] ?>]" class="form-control" value="<?= $prefillCrates ?>" style="font-weight: 800; text-align: center; width: 75px; border: 1px solid #CBD5E1;">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <label style="font-size: 0.8rem; font-weight: 700; color: #475569;">Bouteilles vrac :</label>
+                            <input type="number" min="0" step="1" name="loose_bottles_returned[<?= $pt['id'] ?>]" class="form-control" value="<?= $prefillBottles ?>" style="font-weight: 800; text-align: center; width: 75px; border: 1px solid #CBD5E1;">
+                        </div>
                     </div>
                 </div>
                 <?php endforeach; ?>
@@ -384,15 +470,20 @@ foreach ($sales as $s) {
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label" style="font-weight: 800; font-size: 1rem; color: #16A34A;">
-                            Montant Réellement Remis par <?= htmlspecialchars($tournee['driver_name']) ?> (FCFA) <span style="color: var(--c-danger);">*</span>
-                        </label>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 8px;">
+                            <label class="form-label" style="font-weight: 800; font-size: 1rem; color: #16A34A; margin-bottom: 0;">
+                                Montant Réellement Remis par <?= htmlspecialchars($tournee['driver_name']) ?> (FCFA) <span style="color: var(--c-danger);">*</span>
+                            </label>
+                            <button type="button" onclick="resetCashDepositedToNetExpected()" style="background: none; border: none; color: #0284C7; font-size: 0.8rem; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0;" title="Réinitialiser pour correspondre exactement au Net Cash Attendu">
+                                ↺ Aligner sur le net attendu
+                            </button>
+                        </div>
                         <input type="number" step="any" min="0" name="cash_deposited" id="input_cash_deposited" 
                                class="form-control" required 
-                               value="<?= $totalCashFromSales ?>" 
+                               value="<?= max(0, $totalCashFromSales) ?>" 
                                style="font-size: 1.3rem; font-weight: 900; color: #16A34A; padding: 10px 14px; border: 2px solid #16A34A;"
-                               oninput="calculateFinancialReconciliation()">
-                        <div id="cash_shortage_alert" style="display: none; margin-top: 8px; font-weight: 700; color: #DC2626; font-size: 0.85rem;">
+                               oninput="onCashDepositedInput()">
+                        <div id="cash_shortage_alert" style="display: none; margin-top: 8px; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 0.85rem;">
                             ⚠️ Attention : Manquant de caisse de <span id="disp_shortage_amount">0</span> FCFA !
                         </div>
                     </div>
@@ -413,41 +504,36 @@ foreach ($sales as $s) {
     </div>
 </form>
 
-<!-- MODAL ANNULATION -->
-<div id="cancel_modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; padding: 20px;">
-    <div style="background: white; border-radius: 10px; max-width: 500px; width: 100%; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
-        <h3 style="margin-top: 0; color: #DC2626; font-size: 1.2rem;"><i class='bx bx-error'></i> Confirmer l'annulation de la tournée</h3>
-        <p style="color: #64748B; font-size: 0.9rem;">
-            L'annulation de la tournée réintégrera immédiatement <strong>toutes les marchandises chargées</strong> dans le stock du magasin.
-        </p>
-        <form action="<?= BASE_URL ?>/tournees/annuler/<?= $tournee['id'] ?>" method="POST">
-            <div class="form-group" style="margin-bottom: 16px;">
-                <label class="form-label">Motif de l'annulation <span style="color: var(--c-danger);">*</span></label>
-                <input type="text" name="cancel_reason" class="form-control" required placeholder="Ex: Chauffeur indisponible, Panne véhicule...">
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                <button type="button" class="btn btn-primary" onclick="closeCancelModal()" style="background: #64748B;">Retour</button>
-                <button type="submit" class="btn btn-primary" style="background: #DC2626; font-weight: 700;">Confirmer l'annulation</button>
-            </div>
-        </form>
-    </div>
-</div>
-
 <script>
 let totalCashSales = <?= $totalCashFromSales ?>;
 let expenseRowCounter = 1;
+let isCashDepositedManuallyModified = false;
+
+function onCashDepositedInput() {
+    isCashDepositedManuallyModified = true;
+    calculateFinancialReconciliation();
+}
+
+function resetCashDepositedToNetExpected() {
+    isCashDepositedManuallyModified = false;
+    calculateFinancialReconciliation();
+}
 
 function calculateDechargeShortages() {
-    const returnInputs = document.querySelectorAll(".decharge-return-input");
-    returnInputs.forEach(inp => {
+    const crateInputs = document.querySelectorAll(".decharge-return-crates");
+    crateInputs.forEach(inp => {
         const itemId = inp.dataset.itemId;
         const loaded = parseFloat(inp.dataset.loaded) || 0;
         const sold = parseFloat(inp.dataset.sold) || 0;
-        const returned = parseFloat(inp.value) || 0;
+        const crates = parseFloat(inp.value) || 0;
+        const demiCheckbox = document.getElementById(`input_return_demi_${itemId}`);
+        const hasDemi = (demiCheckbox && demiCheckbox.checked) ? 0.5 : 0.0;
+        const returned = crates + hasDemi;
         const theoretical = Math.max(0, loaded - sold);
-        const shortage = theoretical - returned;
+        const shortage = Math.round((theoretical - returned) * 10) / 10;
 
         const badge = document.getElementById(`shortage_badge_${itemId}`);
+        if (!badge) return;
         if (shortage === 0) {
             badge.innerHTML = `<span style="color: #16A34A; font-weight: 700;">0 🟢</span>`;
             inp.style.borderColor = "#0284C7";
@@ -469,18 +555,46 @@ function calculateFinancialReconciliation() {
     });
 
     const netExpected = Math.max(0, totalCashSales - totalExpenses);
-    document.getElementById("disp_total_expenses").innerText = new Intl.NumberFormat('fr-FR').format(totalExpenses) + " FCFA";
-    document.getElementById("disp_net_expected_cash").innerText = new Intl.NumberFormat('fr-FR').format(netExpected) + " FCFA";
+    const dispTotalExp = document.getElementById("disp_total_expenses");
+    if (dispTotalExp) dispTotalExp.innerText = new Intl.NumberFormat('fr-FR').format(totalExpenses) + " FCFA";
+    const dispNetExp = document.getElementById("disp_net_expected_cash");
+    if (dispNetExp) dispNetExp.innerText = new Intl.NumberFormat('fr-FR').format(netExpected) + " FCFA";
 
-    const cashDeposited = parseFloat(document.getElementById("input_cash_deposited").value) || 0;
+    const cashInput = document.getElementById("input_cash_deposited");
+    if (!cashInput) return;
+
+    if (!isCashDepositedManuallyModified) {
+        cashInput.value = netExpected;
+    }
+
+    const cashDeposited = parseFloat(cashInput.value) || 0;
     const shortage = netExpected - cashDeposited;
     const shortageAlert = document.getElementById("cash_shortage_alert");
 
-    if (shortage > 0) {
-        document.getElementById("disp_shortage_amount").innerText = new Intl.NumberFormat('fr-FR').format(shortage);
-        shortageAlert.style.display = "block";
-    } else {
-        shortageAlert.style.display = "none";
+    if (shortageAlert) {
+        if (shortage > 0) {
+            shortageAlert.style.display = "block";
+            shortageAlert.style.background = "#FEE2E2";
+            shortageAlert.style.border = "1px solid #FCA5A5";
+            shortageAlert.style.color = "#991B1B";
+            shortageAlert.innerHTML = `⚠️ Attention : Manquant de caisse de <strong>${new Intl.NumberFormat('fr-FR').format(shortage)} FCFA</strong> !`;
+        } else if (shortage < 0) {
+            shortageAlert.style.display = "block";
+            shortageAlert.style.background = "#E0F2FE";
+            shortageAlert.style.border = "1px solid #BAE6FD";
+            shortageAlert.style.color = "#0369A1";
+            shortageAlert.innerHTML = `ℹ️ Excédent / Versement supérieur au net attendu de <strong>+${new Intl.NumberFormat('fr-FR').format(Math.abs(shortage))} FCFA</strong> !`;
+        } else {
+            if (isCashDepositedManuallyModified) {
+                shortageAlert.style.display = "block";
+                shortageAlert.style.background = "#DCFCE7";
+                shortageAlert.style.border = "1px solid #86EFAC";
+                shortageAlert.style.color = "#166534";
+                shortageAlert.innerHTML = `✓ Solde exact : aucun manquant de caisse.`;
+            } else {
+                shortageAlert.style.display = "none";
+            }
+        }
     }
 }
 
@@ -511,22 +625,39 @@ function addExpenseRow() {
     expenseRowCounter++;
 }
 
-function openCancelModal() {
-    document.getElementById("cancel_modal").style.display = "flex";
-}
-function closeCancelModal() {
-    document.getElementById("cancel_modal").style.display = "none";
-}
-
 document.addEventListener("DOMContentLoaded", function() {
     calculateDechargeShortages();
     calculateFinancialReconciliation();
 });
 </script>
 
-<?php else: ?>
+<?php elseif ($tournee['status'] === 'Cloturee'): ?>
 <!-- IF ALREADY CLOSED -->
-<div class="card" style="background: #F8FAFC; border: 2px solid #31C48D; padding: 20px; border-radius: 8px;">
+<?php if (!empty($_SESSION['user']) && strtolower($_SESSION['user']['role'] ?? '') === 'admin'): ?>
+<div style="background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 16px 20px; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+        <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <i class='bx bx-shield-quarter' style="font-size: 1.35rem; color: #D97706;"></i>
+                <strong style="color: #92400E; font-size: 1rem;">Zone d'Administration & Régularisation</strong>
+            </div>
+            <p style="margin: 4px 0 0 0; color: #B45309; font-size: 0.85rem;">
+                Une erreur sur les invendus, le versement ou les frais de route ? Vous pouvez rouvrir la décharge pour corriger les chiffres, ou annuler intégralement la tournée.
+            </p>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-primary" onclick="openReopenModal()" style="background: #D97706; padding: 9px 18px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                <i class='bx bx-reset'></i> Rouvrir la Décharge
+            </button>
+            <button type="button" class="btn btn-primary" onclick="openCancelModal()" style="background: #DC2626; padding: 9px 18px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                <i class='bx bx-x-circle'></i> Annuler la Tournée
+            </button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<div class="card" style="background: #F8FAFC; border: 2px solid #31C48D; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
     <div style="display: flex; align-items: center; gap: 12px;">
         <i class='bx bx-check-shield' style="font-size: 2.5rem; color: #16A34A;"></i>
         <div>
@@ -541,4 +672,130 @@ document.addEventListener("DOMContentLoaded", function() {
         </div>
     </div>
 </div>
+
+<div class="card" style="margin-bottom: 25px;">
+    <div class="card-header">
+        <span><i class='bx bx-clipboard'></i> Bilan Final du Déchargement des Boissons</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Boisson</th>
+                    <th style="text-align: center;">Chargé au Matin</th>
+                    <th style="text-align: center;">Vendu sur Factures</th>
+                    <th style="text-align: center;">Rapporté au Dépôt</th>
+                    <th style="text-align: center;">Manquant / Écart</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($items as $it): 
+                    $hasDemiLoaded = !empty($it['has_demi']) || ($it['format_type'] === 'demi');
+                    $loadedEquiv = floatval($it['stock_equivalent'] ?? ($it['qty_loaded'] + ($hasDemiLoaded ? 0.5 : 0.0)));
+                    $sold = floatval($it['qty_sold'] ?? $it['calculated_qty_sold'] ?? 0);
+                    $returned = floatval($it['qty_returned'] ?? 0);
+                    $shortage = floatval($it['qty_shortage'] ?? 0);
+                ?>
+                <tr>
+                    <td><strong><?= htmlspecialchars($it['product_name']) ?></strong></td>
+                    <td style="text-align: center; font-weight: 700;"><?= $loadedEquiv ?> c.</td>
+                    <td style="text-align: center; font-weight: 700; color: #0284C7;"><?= $sold ?> c.</td>
+                    <td style="text-align: center; font-weight: 700; color: #16A34A;"><?= $returned ?> c.</td>
+                    <td style="text-align: center;">
+                        <?php if ($shortage == 0): ?>
+                            <span style="color: #16A34A; font-weight: 700;">0 🟢</span>
+                        <?php else: ?>
+                            <span style="color: #DC2626; font-weight: 800;">-<?= $shortage ?> manquant 🔴</span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<?php else: ?>
+<!-- IF ANNULEE -->
+<div class="card" style="background: #FEF2F2; border: 2px solid #EF4444; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <i class='bx bx-x-circle' style="font-size: 2.5rem; color: #DC2626;"></i>
+        <div>
+            <h3 style="margin: 0; color: #DC2626;">Cette tournée a été annulée</h3>
+            <p style="margin: 4px 0 0 0; color: #7F1D1D; font-size: 0.88rem;">
+                Le chargement initial du matin a été intégralement restitué au stock magasin. Toutes les factures carnet associées ont été annulées.
+                <?php if (!empty($tournee['notes'])): ?>
+                    <br><strong>Historique / Notes :</strong> <?= nl2br(htmlspecialchars($tournee['notes'])) ?>
+                <?php endif; ?>
+            </p>
+        </div>
+    </div>
+</div>
 <?php endif; ?>
+
+<!-- MODAL RÉOUVERTURE DÉCHARGE (ACTION A) -->
+<div id="reopen_modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; padding: 20px;">
+    <div style="background: white; border-radius: 10px; max-width: 520px; width: 100%; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+            <i class='bx bx-reset' style="font-size: 1.8rem; color: #D97706;"></i>
+            <h3 style="margin: 0; color: #92400E; font-size: 1.2rem;">Rouvrir la Décharge (Dé-clôturer)</h3>
+        </div>
+        <p style="color: #475569; font-size: 0.88rem; line-height: 1.5; margin-bottom: 15px;">
+            Cette action va <strong>défaire les écritures du soir</strong> (versement caisse, réintégration des invendus et emballages) et replacer la tournée en <strong>En Route</strong>.<br>
+            Les factures carnet et créances clients <strong>restent intactes</strong>. Vous pourrez modifier les chiffres et re-clôturer.
+        </p>
+        <form action="<?= BASE_URL ?>/tournees/rouvrir/<?= $tournee['id'] ?>" method="POST">
+            <div class="form-group" style="margin-bottom: 18px;">
+                <label class="form-label" style="font-weight: 700;">Motif obligatoire de réouverture <span style="color: var(--c-danger);">*</span></label>
+                <input type="text" name="reopen_reason" class="form-control" required minlength="5" placeholder="Ex: Erreur de comptage sur les invendus, faute de frappe carburant...">
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="btn btn-primary" onclick="closeReopenModal()" style="background: #64748B;">Retour</button>
+                <button type="submit" class="btn btn-primary" style="background: #D97706; font-weight: 700;">Confirmer la réouverture</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL ANNULATION TOTALE (ACTION B) -->
+<div id="cancel_modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; padding: 20px;">
+    <div style="background: white; border-radius: 10px; max-width: 520px; width: 100%; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+            <i class='bx bx-error' style="font-size: 1.8rem; color: #DC2626;"></i>
+            <h3 style="margin: 0; color: #DC2626; font-size: 1.2rem;">Confirmer l'annulation intégrale</h3>
+        </div>
+        <p style="color: #475569; font-size: 0.88rem; line-height: 1.5; margin-bottom: 15px;">
+            L'annulation intégrale va <strong>annuler toutes les factures carnet rattachées</strong>, soulager les dettes créées et réintégrer <strong>la totalité du chargement initial du matin</strong> dans le stock magasin.<br>
+            Le statut final sera <strong>Annulée</strong> avec un solde net nul.
+        </p>
+        <form action="<?= BASE_URL ?>/tournees/annuler/<?= $tournee['id'] ?>" method="POST">
+            <div class="form-group" style="margin-bottom: 18px;">
+                <label class="form-label" style="font-weight: 700;">Motif obligatoire de l'annulation <span style="color: var(--c-danger);">*</span></label>
+                <input type="text" name="cancel_reason" class="form-control" required minlength="5" placeholder="Ex: Véhicule tombé en panne, tournée avortée, doublon...">
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="btn btn-primary" onclick="closeCancelModal()" style="background: #64748B;">Retour</button>
+                <button type="submit" class="btn btn-primary" style="background: #DC2626; font-weight: 700;">Confirmer l'annulation intégrale</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openCancelModal() {
+    const modal = document.getElementById("cancel_modal");
+    if (modal) modal.style.display = "flex";
+}
+function closeCancelModal() {
+    const modal = document.getElementById("cancel_modal");
+    if (modal) modal.style.display = "none";
+}
+function openReopenModal() {
+    const modal = document.getElementById("reopen_modal");
+    if (modal) modal.style.display = "flex";
+}
+function closeReopenModal() {
+    const modal = document.getElementById("reopen_modal");
+    if (modal) modal.style.display = "none";
+}
+</script>

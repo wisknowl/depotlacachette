@@ -232,6 +232,18 @@
                 <div id="partial_payment_notice" style="display: none; margin-top: 6px; font-size: 0.8rem; color: #D97706; font-weight: 700;">
                     ⚠️ Reliquat non payé : <span id="partial_due_disp">0 FCFA</span> sera porté au compte client.
                 </div>
+
+                <!-- EXCESS PAYMENT / AVOIR NOTICE -->
+                <div id="excess_payment_notice" style="display: none; margin-top: 8px; padding: 10px 14px; background: #ECFDF5; border-left: 4px solid #10B981; border-radius: 6px; font-size: 0.85rem; color: #065F46;">
+                    <div style="display: flex; align-items: flex-start; gap: 6px;">
+                        <i class='bx bx-check-circle' style="font-size: 1.25rem; color: #059669; flex-shrink: 0; margin-top: 1px;"></i>
+                        <div>
+                            <strong>Paiement avec Surplus (Avoir Automatique) :</strong><br>
+                            Versé : <strong id="excess_paid_disp">0 FCFA</strong> (Net : <strong id="excess_net_disp">0 FCFA</strong>).<br>
+                            Surplus de <strong id="excess_surplus_disp" style="color: #059669; font-size: 0.95rem;">+0 FCFA</strong> crédité en <strong>Avoir Client</strong> et encaissé en caisse.
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- CREDIT LIMIT WARNING -->
@@ -298,6 +310,10 @@
                 <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.85rem; color: #64748B;">
                     <span>Montant Encaissé (Caisse) :</span>
                     <strong id="vmodal_amount_paid" style="color: #059669;">0 FCFA</strong>
+                </div>
+                <div id="vmodal_excess_row" style="display: none; justify-content: space-between; margin-top: 4px; font-size: 0.85rem; color: #059669; background: #ECFDF5; padding: 4px 8px; border-radius: 4px; border: 1px dashed #10B981; font-weight: 700;">
+                    <span><i class='bx bx-plus-circle'></i> Avoir Généré (Surplus) :</span>
+                    <strong id="vmodal_excess_amount">+0 FCFA</strong>
                 </div>
                 <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748B;">
                     <span>Reste Dû (Dette) :</span>
@@ -594,11 +610,11 @@ function calculateTotals() {
     globalSaleAvoir = avoirUsed;
 
     const netPayable = Math.max(0, grossNet - avoirUsed);
-    globalSaleTotal = grossNet;
+    globalSaleTotal = netPayable;
 
     // Render displays
     document.getElementById("disp_subtotal").innerText = new Intl.NumberFormat('fr-FR').format(subTotal) + " FCFA";
-    document.getElementById("grand_total_badge").innerText = new Intl.NumberFormat('fr-FR').format(grossNet) + " FCFA";
+    document.getElementById("grand_total_badge").innerText = new Intl.NumberFormat('fr-FR').format(netPayable) + " FCFA";
     document.getElementById("disp_net_payable").innerText = new Intl.NumberFormat('fr-FR').format(netPayable) + " FCFA";
 
     const avoirRow = document.getElementById("row_avoir_deducted");
@@ -620,15 +636,17 @@ function calculateTotals() {
         }
     }
 
-    // Amount Paid & Partial Cash
+    // Amount Paid & Partial Cash / Excess Avoir
     const isCredit = document.getElementById("settle_credit")?.checked || false;
     const amtPaidInput = document.getElementById("vente_amount_paid");
     const partialNotice = document.getElementById("partial_payment_notice");
+    const excessNotice = document.getElementById("excess_payment_notice");
 
     let amountPaid = netPayable;
     if (isCredit) {
         amountPaid = 0;
         if (partialNotice) partialNotice.style.display = "none";
+        if (excessNotice) excessNotice.style.display = "none";
     } else {
         if (!isAmountPaidManuallySet && amtPaidInput) {
             amtPaidInput.value = netPayable;
@@ -638,12 +656,26 @@ function calculateTotals() {
         }
 
         const remainingDebt = Math.max(0, netPayable - amountPaid);
-        if (remainingDebt > 0 && partialNotice) {
-            partialNotice.style.display = "block";
-            const dueDisp = document.getElementById("partial_due_disp");
-            if (dueDisp) dueDisp.innerText = new Intl.NumberFormat('fr-FR').format(remainingDebt) + " FCFA";
-        } else if (partialNotice) {
-            partialNotice.style.display = "none";
+        const excessCash = Math.max(0, amountPaid - netPayable);
+
+        if (excessCash > 0 && excessNotice) {
+            excessNotice.style.display = "block";
+            if (partialNotice) partialNotice.style.display = "none";
+            const paidDisp = document.getElementById("excess_paid_disp");
+            const netDisp = document.getElementById("excess_net_disp");
+            const surplusDisp = document.getElementById("excess_surplus_disp");
+            if (paidDisp) paidDisp.innerText = new Intl.NumberFormat('fr-FR').format(amountPaid) + " FCFA";
+            if (netDisp) netDisp.innerText = new Intl.NumberFormat('fr-FR').format(netPayable) + " FCFA";
+            if (surplusDisp) surplusDisp.innerText = "+" + new Intl.NumberFormat('fr-FR').format(excessCash) + " FCFA";
+        } else {
+            if (excessNotice) excessNotice.style.display = "none";
+            if (remainingDebt > 0 && partialNotice) {
+                partialNotice.style.display = "block";
+                const dueDisp = document.getElementById("partial_due_disp");
+                if (dueDisp) dueDisp.innerText = new Intl.NumberFormat('fr-FR').format(remainingDebt) + " FCFA";
+            } else if (partialNotice) {
+                partialNotice.style.display = "none";
+            }
         }
     }
 
@@ -802,6 +834,16 @@ function openDetailConfirmModal() {
 
     document.getElementById("vmodal_total_amount").innerText = new Intl.NumberFormat('fr-FR').format(globalSaleTotal) + " FCFA";
     document.getElementById("vmodal_amount_paid").innerText = new Intl.NumberFormat('fr-FR').format(amountPaid) + " FCFA" + (!isCredit && cashSelect.selectedIndex >= 0 ? ` (${cashSelect.options[cashSelect.selectedIndex].text.split('(')[0].trim()})` : '');
+    
+    const excessRow = document.getElementById("vmodal_excess_row");
+    const excessCash = Math.max(0, amountPaid - globalSaleTotal);
+    if (excessCash > 0 && excessRow) {
+        excessRow.style.display = "flex";
+        document.getElementById("vmodal_excess_amount").innerText = "+" + new Intl.NumberFormat('fr-FR').format(excessCash) + " FCFA";
+    } else if (excessRow) {
+        excessRow.style.display = "none";
+    }
+
     document.getElementById("vmodal_amount_due").innerText = new Intl.NumberFormat('fr-FR').format(amountDue) + " FCFA";
 
     // Populate Modal Items

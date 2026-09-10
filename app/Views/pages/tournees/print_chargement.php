@@ -166,11 +166,16 @@
         </thead>
         <tbody>
             <?php 
-            $totQty = 0;
+            $totQtyEquiv = 0;
             $totVal = 0;
             foreach ($items as $idx => $it): 
-                $totQty += $it['qty_loaded'];
-                $lineTot = $it['qty_loaded'] * $it['unit_price'];
+                $hasDemi = !empty($it['has_demi']) || ($it['format_type'] === 'demi');
+                $qtyCasiers = floatval($it['qty_loaded']);
+                $demiPrice = floatval($it['demi_unit_price'] ?? 0);
+                $unitPrice = floatval($it['unit_price']);
+                $equiv = $qtyCasiers + ($hasDemi ? 0.5 : 0.0);
+                $lineTot = ($qtyCasiers * $unitPrice) + ($hasDemi ? $demiPrice : 0.0);
+                $totQtyEquiv += $equiv;
                 $totVal += $lineTot;
             ?>
             <tr>
@@ -181,10 +186,36 @@
                         <small style="color: #64748B;">[<?= htmlspecialchars($it['short_code']) ?>]</small>
                     <?php endif; ?>
                 </td>
-                <td style="text-align: center;"><?= ($it['format_type'] === 'demi') ? 'Demi (0.5)' : 'Entier (1.0)' ?></td>
+                <td style="text-align: center;">
+                    <?php if ($hasDemi && $qtyCasiers > 0): ?>
+                        <span style="font-weight: 700; color: #3730A3;">Casier</span> + <span style="font-weight: 700; color: #92400E;">Demi</span>
+                    <?php elseif ($hasDemi && $qtyCasiers == 0): ?>
+                        <span style="font-weight: 700; color: #92400E;">Demi-Casier (0.5)</span>
+                    <?php else: ?>
+                        Casier Entier (1.0)
+                    <?php endif; ?>
+                </td>
                 <td style="text-align: center;"><?= htmlspecialchars($it['packaging_name'] ?: 'Perdu') ?></td>
-                <td style="text-align: center; font-size: 14px; font-weight: 800;"><?= $it['qty_loaded'] ?></td>
-                <td style="text-align: right;"><?= number_format($it['unit_price'], 0, ',', ' ') ?> F</td>
+                <td style="text-align: center; font-size: 14px; font-weight: 800;">
+                    <?php if ($hasDemi && $qtyCasiers > 0): ?>
+                        <?= number_format($qtyCasiers, 0) ?> c. + 1 demi
+                        <div style="font-size: 11px; color: #64748B; font-weight: 600;">(<?= number_format($equiv, 1) ?> eq.)</div>
+                    <?php elseif ($hasDemi && $qtyCasiers == 0): ?>
+                        1 demi (0.5)
+                    <?php else: ?>
+                        <?= number_format($qtyCasiers, 0) ?>
+                    <?php endif; ?>
+                </td>
+                <td style="text-align: right;">
+                    <?php if ($hasDemi && $qtyCasiers > 0): ?>
+                        <div><?= number_format($unitPrice, 0, ',', ' ') ?> F/c.</div>
+                        <div style="font-size: 11px; color: #92400E;">+<?= number_format($demiPrice, 0, ',', ' ') ?> F (demi)</div>
+                    <?php elseif ($hasDemi && $qtyCasiers == 0): ?>
+                        <?= number_format($demiPrice, 0, ',', ' ') ?> F
+                    <?php else: ?>
+                        <?= number_format($unitPrice, 0, ',', ' ') ?> F
+                    <?php endif; ?>
+                </td>
                 <td style="text-align: right; font-weight: 700;"><?= number_format($lineTot, 0, ',', ' ') ?> F</td>
             </tr>
             <?php endforeach; ?>
@@ -192,7 +223,7 @@
         <tfoot>
             <tr style="background: #F8FAFC; font-weight: bold;">
                 <td colspan="4" style="text-align: right; font-size: 13px;">TOTAL CHARGEMENT :</td>
-                <td style="text-align: center; font-size: 15px; color: #0284C7; font-weight: 800;"><?= $totQty ?> unités</td>
+                <td style="text-align: center; font-size: 15px; color: #0284C7; font-weight: 800;"><?= number_format($totQtyEquiv, 1) ?> unités</td>
                 <td></td>
                 <td style="text-align: right; font-size: 15px; color: #0284C7; font-weight: 800;"><?= number_format($totVal, 0, ',', ' ') ?> FCFA</td>
             </tr>

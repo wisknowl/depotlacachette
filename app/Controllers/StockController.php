@@ -66,6 +66,7 @@ class StockController extends Controller {
         $search = trim($_GET['search'] ?? '');
         $categoryId = !empty($_GET['category_id']) ? intval($_GET['category_id']) : null;
         $formatId = !empty($_GET['format_id']) ? intval($_GET['format_id']) : null;
+        $packagingTypeId = !empty($_GET['packaging_type_id']) ? intval($_GET['packaging_type_id']) : null;
         $status = trim($_GET['status'] ?? 'all');
 
         // Global KPI counts across all products
@@ -97,6 +98,7 @@ class StockController extends Controller {
             'search' => $search,
             'category_id' => $categoryId,
             'format_id' => $formatId,
+            'packaging_type_id' => $packagingTypeId,
             'status' => ($status !== 'all') ? $status : null
         ];
         $filteredItems = $this->model->getFilteredStockStatus($filterParams);
@@ -115,6 +117,7 @@ class StockController extends Controller {
             'stockItems' => $filteredItems,
             'categories' => $this->model->getCategories(),
             'formats' => $this->model->getFormats(),
+            'packagingTypes' => $this->model->getPackagingTypes(),
             'totalCasiers' => $totalCasiers,
             'totalValorisation' => $totalValorisation,
             'countTotal' => $countTotal,
@@ -126,6 +129,7 @@ class StockController extends Controller {
             'filterSearch' => $search,
             'filterCategoryId' => $categoryId,
             'filterFormatId' => $formatId,
+            'filterPackagingTypeId' => $packagingTypeId,
             'filterStatus' => $status,
             'flash_success' => $_SESSION['flash_success'] ?? null,
             'flash_error' => $_SESSION['flash_error'] ?? null

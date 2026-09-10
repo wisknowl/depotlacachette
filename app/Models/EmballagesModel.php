@@ -91,7 +91,42 @@ class EmballagesModel {
                     WHERE s.client_id = c.id 
                       AND s.status = 'Valid'
                       AND p.packaging_type_id = pt.id
-                ) as product_sigles
+                      AND (si.crates_out > si.crates_returned OR si.bottles_out > (si.crates_returned * pt.bottles_per_crate + si.bottles_returned))
+                ) as product_sigles,
+                (
+                    SELECT GROUP_CONCAT(
+                        CONCAT(
+                            sub.sale_id, '###',
+                            sub.sale_date_fmt, '###',
+                            sub.tot_crates_due, '###',
+                            sub.tot_bottles_due, '###',
+                            sub.prods, '###',
+                            COALESCE(sub.tournee_ref, 'Comptoir')
+                        )
+                        ORDER BY sub.sale_id DESC
+                        SEPARATOR '|||'
+                    )
+                    FROM (
+                        SELECT 
+                            s.id as sale_id,
+                            DATE_FORMAT(s.sale_date, '%d/%m/%Y') as sale_date_fmt,
+                            SUM(GREATEST(0, si.crates_out - si.crates_returned)) as tot_crates_due,
+                            SUM(GREATEST(0, si.bottles_out - (si.crates_returned * pt2.bottles_per_crate + si.bottles_returned))) as tot_bottles_due,
+                            GROUP_CONCAT(DISTINCT COALESCE(p.short_code, p.name) ORDER BY p.name ASC SEPARATOR ', ') as prods,
+                            t.reference as tournee_ref,
+                            s.client_id,
+                            p.packaging_type_id
+                        FROM sale_items si
+                        JOIN sales s ON si.sale_id = s.id
+                        LEFT JOIN tournees t ON s.tournee_id = t.id
+                        JOIN products p ON si.product_id = p.id
+                        JOIN packaging_types pt2 ON p.packaging_type_id = pt2.id
+                        WHERE s.status = 'Valid'
+                          AND (si.crates_out > si.crates_returned OR si.bottles_out > (si.crates_returned * pt2.bottles_per_crate + si.bottles_returned))
+                        GROUP BY s.id, s.sale_date, t.reference, s.client_id, p.packaging_type_id
+                    ) sub
+                    WHERE sub.client_id = c.id AND sub.packaging_type_id = pt.id
+                ) as invoice_traces
             FROM client_emballage_debts ced
             JOIN clients c ON ced.client_id = c.id
             JOIN packaging_types pt ON ced.packaging_type_id = pt.id
@@ -105,7 +140,29 @@ class EmballagesModel {
         $sql .= " ORDER BY c.name ASC, pt.company ASC";
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
-        return $stmt->fetchAll();
+        $debts = $stmt->fetchAll();
+
+        foreach ($debts as &$d) {
+            $d['source_invoices'] = [];
+            if (!empty($d['invoice_traces'])) {
+                foreach (explode('|||', $d['invoice_traces']) as $tracePart) {
+                    $parts = explode('###', $tracePart);
+                    if (count($parts) >= 3) {
+                        $d['source_invoices'][] = [
+                            'sale_id' => $parts[0],
+                            'sale_date' => $parts[1],
+                            'crates_due' => intval($parts[2] ?? 0),
+                            'bottles_due' => intval($parts[3] ?? 0),
+                            'products' => $parts[4] ?? '',
+                            'tournee' => $parts[5] ?? 'Comptoir'
+                        ];
+                    }
+                }
+            }
+        }
+        unset($d);
+
+        return $debts;
     }
 
     public function getSupplierDebts($supplierId = null) {
@@ -144,12 +201,14 @@ class EmballagesModel {
                 pt.color as packaging_color,
                 c.name as client_name,
                 s.name as supplier_name,
-                u.username
+                u.username,
+                t_tour.reference as tournee_reference
             FROM emballage_movements em
             JOIN packaging_types pt ON em.packaging_type_id = pt.id
             LEFT JOIN clients c ON em.client_id = c.id
             LEFT JOIN suppliers s ON em.supplier_id = s.id
             LEFT JOIN users u ON em.created_by = u.id
+            LEFT JOIN tournees t_tour ON (em.reference_id = t_tour.id)
             WHERE 1=1
         ";
         $params = [];
@@ -292,11 +351,16 @@ class EmballagesModel {
                 $newCrates = floor($remainingTotalBtls / $factor);
                 $newLoose = $remainingTotalBtls % $factor;
 
-                $this->db->prepare("
-                    UPDATE client_emballage_debts 
-                    SET crates_due = ?, loose_bottles_due = ? 
-                    WHERE client_id = ? AND packaging_type_id = ?
-                ")->execute([$newCrates, $newLoose, $clientId, $packagingTypeId]);
+                if ($remainingTotalBtls <= 0) {
+                    $this->db->prepare("DELETE FROM client_emballage_debts WHERE client_id = ? AND packaging_type_id = ?")
+                             ->execute([$clientId, $packagingTypeId]);
+                } else {
+                    $this->db->prepare("
+                        UPDATE client_emballage_debts 
+                        SET crates_due = ?, loose_bottles_due = ? 
+                        WHERE client_id = ? AND packaging_type_id = ?
+                    ")->execute([$newCrates, $newLoose, $clientId, $packagingTypeId]);
+                }
             }
 
             $this->db->commit();

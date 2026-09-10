@@ -103,10 +103,11 @@
                 $totalCasiers = 0;
                 $totalRistourneExpected = 0;
                 foreach ($purchase['items'] as $item): 
-                    $totalCasiers += floatval($item['stock_equivalent']);
+                    $equiv = floatval($item['stock_equivalent']);
+                    $totalCasiers += $equiv;
                     $totalRistourneExpected += floatval($item['total_ristourne'] ?? 0);
-                    $pkgLabel = \App\Core\Helper::formatPackagingLabel($item['category_name'] ?? '', $item['format_name'] ?? '', $item['format_type'] ?? 'casier');
-                    $isDemi = ($item['format_type'] === 'demi');
+                    $hasDemi = !empty($item['has_demi']) || ($item['format_type'] === 'demi');
+                    $qtyCrates = intval($item['quantity']);
                 ?>
                 <tr style="border-bottom: 1px solid #E2E8F0;">
                     <td style="padding: 12px;">
@@ -114,15 +115,34 @@
                         <div style="font-size: 0.78rem; color: #64748B;"><?= htmlspecialchars($item['category_name'] ?? '') ?> &bull; <?= htmlspecialchars($item['format_name'] ?? '') ?></div>
                     </td>
                     <td style="padding: 12px; text-align: center;">
-                        <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: <?= $isDemi ? '#FEF3C7; color: #92400E;' : '#E0E7FF; color: #3730A3;' ?>">
-                            <?= htmlspecialchars($pkgLabel) ?>
-                        </span>
+                        <?php if ($qtyCrates > 0 && $hasDemi): ?>
+                            <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: #E0F2FE; color: #0369A1;">
+                                Casier + Demi
+                            </span>
+                        <?php elseif ($hasDemi): ?>
+                            <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: #FEF3C7; color: #92400E;">
+                                Demi-Casier
+                            </span>
+                        <?php else: ?>
+                            <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: #E0E7FF; color: #3730A3;">
+                                Casier
+                            </span>
+                        <?php endif; ?>
                     </td>
                     <td style="padding: 12px; text-align: center; font-weight: 800; font-size: 1rem; color: var(--c-navy);">
-                        <?= number_format($item['quantity'], 0) ?>
+                        <?php if ($hasDemi && $qtyCrates > 0): ?>
+                            <?= $qtyCrates ?> c. + Demi <span style="font-size: 0.78rem; color: #64748B; font-weight: normal;">(<?= $equiv ?> eq.)</span>
+                        <?php elseif ($hasDemi): ?>
+                            0 c. + Demi <span style="font-size: 0.78rem; color: #64748B; font-weight: normal;">(0.5 eq.)</span>
+                        <?php else: ?>
+                            <?= $qtyCrates ?> casier(s)
+                        <?php endif; ?>
                     </td>
                     <td style="padding: 12px; text-align: right; color: var(--c-gray-700);">
                         <?= number_format($item['unit_price'], 0, ',', ' ') ?> FCFA
+                        <?php if ($hasDemi && !empty($item['demi_unit_price'])): ?>
+                            <div style="font-size: 0.75rem; color: #64748B;">Demi: <?= number_format($item['demi_unit_price'], 0, ',', ' ') ?> F</div>
+                        <?php endif; ?>
                     </td>
                     <td style="padding: 12px; text-align: right; color: #0284C7; font-weight: 600;">
                         <?= floatval($item['ristourne_unit'] ?? 0) > 0 ? '+' . number_format($item['ristourne_unit'], 0, ',', ' ') . ' FCFA' : '-' ?>

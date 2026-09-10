@@ -167,9 +167,31 @@
                             <?php endif; ?>
                         </td>
                         <td>
+                            <?php if (!empty($m['reference_id'])): ?>
+                                <div style="margin-bottom: 2px;">
+                                    <?php if (str_starts_with($m['reference_id'], 'V')): ?>
+                                        <a href="<?= BASE_URL ?>/ventes/invoice/<?= htmlspecialchars($m['reference_id']) ?>" target="_blank" style="display: inline-flex; align-items: center; gap: 2px; font-weight: 700; color: #1D4ED8; font-size: 0.82rem; text-decoration: none;" title="Voir la facture de vente">
+                                            <i class='bx bx-receipt'></i> <?= htmlspecialchars($m['reference_id']) ?>
+                                        </a>
+                                    <?php elseif (str_starts_with($m['reference_id'], 'A')): ?>
+                                        <span style="font-weight: 700; color: #0284C7; font-size: 0.82rem;"><i class='bx bx-cart'></i> <?= htmlspecialchars($m['reference_id']) ?></span>
+                                    <?php elseif (is_numeric($m['reference_id']) && intval($m['reference_id']) > 0): ?>
+                                        <?php 
+                                            $tRef = !empty($m['tournee_reference']) 
+                                                ? $m['tournee_reference'] 
+                                                : (preg_match('/TR\d+/', $m['notes'] ?? '', $matches) ? $matches[0] : 'TR' . str_pad($m['reference_id'], 5, '0', STR_PAD_LEFT));
+                                        ?>
+                                        <a href="<?= BASE_URL ?>/tournees/details/<?= htmlspecialchars($m['reference_id']) ?>" target="_blank" style="display: inline-flex; align-items: center; gap: 2px; font-weight: 700; color: #059669; font-size: 0.82rem; text-decoration: none;" title="Voir la tournée <?= htmlspecialchars($tRef) ?>">
+                                            <i class='bx bx-trip'></i> <?= htmlspecialchars($tRef) ?>
+                                        </a>
+                                    <?php else: ?>
+                                        <span style="color: #64748B; font-weight: 600; font-size: 0.82rem;"><?= htmlspecialchars($m['reference_id']) ?></span>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
                             <?php if ($m['total_cost'] > 0): ?>
                                 <strong><?= number_format($m['total_cost'], 0, ',', ' ') ?> F</strong>
-                            <?php else: ?>
+                            <?php elseif (empty($m['reference_id'])): ?>
                                 <span style="color: #94A3B8;">Échange</span>
                             <?php endif; ?>
                         </td>

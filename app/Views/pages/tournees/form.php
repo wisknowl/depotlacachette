@@ -107,10 +107,10 @@
                     <thead>
                         <tr>
                             <th style="min-width: 240px;">Produit / Boisson</th>
-                            <th style="min-width: 110px;">Format</th>
                             <th style="min-width: 100px; text-align: center;">Stock Magasin</th>
-                            <th style="min-width: 115px; text-align: right;">Prix Vente (FCFA)</th>
-                            <th style="min-width: 110px; text-align: center;">Qté à Charger</th>
+                            <th style="min-width: 115px; text-align: right;">Prix Casier (FCFA)</th>
+                            <th style="min-width: 110px; text-align: center;">Casiers Entiers</th>
+                            <th style="min-width: 135px; text-align: center;">+ 1 Demi (0.5)</th>
                             <th style="min-width: 140px; text-align: right;">Valeur Ligne (FCFA)</th>
                             <th style="min-width: 50px; text-align: center;">Action</th>
                         </tr>
@@ -193,13 +193,7 @@ function addNewTourneeItemRow() {
                 ${optionsHtml}
             </select>
         </td>
-        <td>
-            <select name="items[${tourneeRowCounter}][format_type]" class="form-control titem-format" onchange="onTourneeFormatChange(${tourneeRowCounter})">
-                <option value="casier">Entier (1.0)</option>
-                <option value="demi">Demi (0.5)</option>
-            </select>
-        </td>
-        <td>
+        <td style="text-align: center;">
             <span id="titem_stock_badge_${tourneeRowCounter}" style="display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 0.82rem; font-weight: 700; background: #E2E8F0; color: #475569;">
                 -
             </span>
@@ -207,8 +201,18 @@ function addNewTourneeItemRow() {
         <td>
             <input type="number" step="any" min="0" name="items[${tourneeRowCounter}][unit_price]" class="form-control titem-price" required placeholder="0" oninput="calculateTourneeTotals()" style="min-width: 105px; font-weight: 700; text-align: right; padding: 6px 8px;">
         </td>
-        <td>
-            <input type="number" step="1" min="1" name="items[${tourneeRowCounter}][quantity]" class="form-control titem-qty" required value="1" oninput="onTourneeQtyChange(${tourneeRowCounter})" style="min-width: 90px; font-weight: 800; font-size: 1.05rem; text-align: center; padding: 6px 8px; color: var(--c-navy-dark);">
+        <td style="text-align: center;">
+            <input type="number" step="1" min="0" name="items[${tourneeRowCounter}][quantity]" class="form-control titem-qty" required value="1" oninput="onTourneeQtyChange(${tourneeRowCounter})" style="min-width: 85px; font-weight: 800; font-size: 1.05rem; text-align: center; padding: 6px 8px; color: var(--c-navy-dark);" title="Nombre de casiers entiers (mettre 0 si chargement d'un demi seul)">
+        </td>
+        <td style="text-align: center;">
+            <div id="tdemi_container_${tourneeRowCounter}" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+                <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.84rem; font-weight: 700; user-select: none; margin-bottom: 0;">
+                    <input type="checkbox" name="items[${tourneeRowCounter}][has_demi]" value="1" class="titem-has-demi" id="thas_demi_${tourneeRowCounter}" onchange="onTourneeDemiToggle(${tourneeRowCounter})">
+                    <span id="tdemi_label_${tourneeRowCounter}" style="color: #92400E;">+ 1 Demi</span>
+                </label>
+                <span id="tdemi_price_tag_${tourneeRowCounter}" style="font-size: 0.72rem; color: #64748B; font-weight: 600;">(0 F)</span>
+                <input type="hidden" name="items[${tourneeRowCounter}][demi_unit_price]" id="tdemi_price_${tourneeRowCounter}" value="0">
+            </div>
         </td>
         <td style="text-align: right; font-weight: 800; font-size: 0.95rem; color: var(--c-navy-dark);" id="titem_line_total_${tourneeRowCounter}">
             0 FCFA
@@ -228,7 +232,6 @@ function removeTourneeItemRow(id) {
     const row = document.getElementById(`trow_${id}`);
     if (row) {
         row.remove();
-        refreshTourneeFormatOptionsAcrossRows();
         calculateTourneeTotals();
     }
 }
@@ -236,8 +239,12 @@ function removeTourneeItemRow(id) {
 function onTourneeProductChange(id) {
     const row = document.getElementById(`trow_${id}`);
     const prodSelect = row.querySelector('.titem-product');
-    const formatSelect = row.querySelector('.titem-format');
     const priceInput = row.querySelector('.titem-price');
+    const qtyInput = row.querySelector('.titem-qty');
+    const hasDemiChk = document.getElementById(`thas_demi_${id}`);
+    const demiPriceHidden = document.getElementById(`tdemi_price_${id}`);
+    const demiLabel = document.getElementById(`tdemi_label_${id}`);
+    const demiPriceTag = document.getElementById(`tdemi_price_tag_${id}`);
     const stockBadge = document.getElementById(`titem_stock_badge_${id}`);
 
     const prodId = parseInt(prodSelect.value) || 0;
@@ -248,31 +255,29 @@ function onTourneeProductChange(id) {
         stockBadge.style.background = "#E2E8F0";
         stockBadge.style.color = "#475569";
         priceInput.value = "";
-        refreshTourneeFormatOptionsAcrossRows();
+        if (hasDemiChk) hasDemiChk.checked = false;
+        if (demiPriceHidden) demiPriceHidden.value = 0;
+        if (demiLabel) demiLabel.innerText = "+ 1 Demi";
+        if (demiPriceTag) demiPriceTag.innerText = "(0 F)";
         calculateTourneeTotals();
         return;
     }
 
-    // Check existing format rows for this product to prevent duplicate format usage
+    // Check if this product is already selected in another row to avoid duplicate rows
     const otherRows = Array.from(document.querySelectorAll("#tournee_tbody tr")).filter(r => r.id !== `trow_${id}`);
-    const existingFormats = [];
+    let alreadySelected = false;
     otherRows.forEach(r => {
         const pSel = r.querySelector('.titem-product');
-        const fSel = r.querySelector('.titem-format');
         if (parseInt(pSel?.value) === prodId) {
-            existingFormats.push(fSel?.value || 'casier');
+            alreadySelected = true;
         }
     });
 
-    if (existingFormats.includes('casier') && existingFormats.includes('demi')) {
-        alert(`La boisson "${prod.name}" est déjà présente dans votre chargement en format Entier et en format Demi.`);
+    if (alreadySelected) {
+        alert(`La boisson "${prod.name}" est déjà présente dans votre chargement.\nVous pouvez saisir les casiers entiers et cocher "+ 1 Demi" sur sa ligne existante.`);
         prodSelect.value = "";
         onTourneeProductChange(id);
         return;
-    } else if (existingFormats.includes('casier')) {
-        formatSelect.value = 'demi';
-    } else if (existingFormats.includes('demi')) {
-        formatSelect.value = 'casier';
     }
 
     stockBadge.innerText = `${prod.stock} dispo`;
@@ -284,84 +289,55 @@ function onTourneeProductChange(id) {
         stockBadge.style.color = "#16A34A";
     }
 
-    onTourneeFormatChange(id);
-}
+    priceInput.value = prod.price_casier || 0;
+    const factor = prod.factor || 12;
+    const demiBottles = Math.round(factor / 2);
+    const demiPrice = prod.price_demi > 0 ? prod.price_demi : Math.round((prod.price_casier || 0) / 2);
 
-function onTourneeFormatChange(id) {
-    const row = document.getElementById(`trow_${id}`);
-    const prodSelect = row.querySelector('.titem-product');
-    const formatSelect = row.querySelector('.titem-format');
-    const priceInput = row.querySelector('.titem-price');
-    const qtyInput = row.querySelector('.titem-qty');
+    if (demiPriceHidden) demiPriceHidden.value = demiPrice;
+    if (demiLabel) demiLabel.innerText = `+ 1 Demi (${demiBottles} btls)`;
+    if (demiPriceTag) demiPriceTag.innerText = `(+${new Intl.NumberFormat('fr-FR').format(demiPrice)} F)`;
 
-    const prodId = parseInt(prodSelect.value) || 0;
-    const prod = availableProducts.find(p => p.id === prodId);
-    if (!prod) return;
+    if (hasDemiChk) hasDemiChk.checked = false;
+    if (parseFloat(qtyInput.value) <= 0) qtyInput.value = 1;
 
-    const format = formatSelect.value;
-    if (format === 'demi') {
-        qtyInput.value = 1;
-        qtyInput.readOnly = true;
-        qtyInput.style.backgroundColor = "#F1F5F9";
-        qtyInput.style.cursor = "not-allowed";
-        qtyInput.title = "En demi-casier, la quantité est strictement fixée à 1.";
-        priceInput.value = prod.price_demi || (prod.price_casier / 2);
-    } else {
-        qtyInput.readOnly = false;
-        qtyInput.style.backgroundColor = "";
-        qtyInput.style.cursor = "";
-        qtyInput.title = "";
-        if (parseFloat(qtyInput.value) <= 0) qtyInput.value = 1;
-        priceInput.value = prod.price_casier || 0;
-    }
-
-    refreshTourneeFormatOptionsAcrossRows();
     calculateTourneeTotals();
 }
 
-function refreshTourneeFormatOptionsAcrossRows() {
-    const allRows = document.querySelectorAll("#tournee_tbody tr");
-    allRows.forEach(row => {
-        const prodSelect = row.querySelector('.titem-product');
-        const formatSelect = row.querySelector('.titem-format');
-        const prodId = parseInt(prodSelect?.value) || 0;
-        if (!prodId || !formatSelect) return;
+function onTourneeDemiToggle(id) {
+    const row = document.getElementById(`trow_${id}`);
+    const qtyInput = row.querySelector('.titem-qty');
+    const hasDemiChk = document.getElementById(`thas_demi_${id}`);
 
-        const optCasier = formatSelect.querySelector("option[value='casier']");
-        const optDemi = formatSelect.querySelector("option[value='demi']");
-        if (!optCasier || !optDemi) return;
-
-        let hasOtherCasier = false;
-        let hasOtherDemi = false;
-
-        allRows.forEach(otherRow => {
-            if (otherRow === row) return;
-            const otherProd = parseInt(otherRow.querySelector('.titem-product')?.value) || 0;
-            const otherFormat = otherRow.querySelector('.titem-format')?.value;
-            if (otherProd === prodId) {
-                if (otherFormat === 'casier') hasOtherCasier = true;
-                if (otherFormat === 'demi') hasOtherDemi = true;
-            }
-        });
-
-        optCasier.disabled = hasOtherCasier;
-        optDemi.disabled = hasOtherDemi;
-    });
+    const isChecked = hasDemiChk?.checked || false;
+    if (isChecked) {
+        qtyInput.min = 0;
+    } else {
+        qtyInput.min = 1;
+        if (parseFloat(qtyInput.value) <= 0) {
+            qtyInput.value = 1;
+        }
+    }
+    calculateTourneeTotals();
 }
 
 function onTourneeQtyChange(id) {
     const row = document.getElementById(`trow_${id}`);
-    const formatSelect = row?.querySelector('.titem-format');
     const qtyInput = row?.querySelector('.titem-qty');
-    if (formatSelect?.value === 'demi' && qtyInput) {
-        qtyInput.value = 1;
-    }
+    const hasDemiChk = document.getElementById(`thas_demi_${id}`);
+    const isChecked = hasDemiChk?.checked || false;
+
+    let qty = parseFloat(qtyInput?.value);
+    if (isNaN(qty) || qty < 0) qty = 0;
+    if (!isChecked && qty < 1) qty = 1;
+    if (qtyInput) qtyInput.value = qty;
+
     calculateTourneeTotals();
 }
 
 function calculateTourneeTotals() {
     let grandTotal = 0;
-    let totalQty = 0;
+    let totalCasiersEquiv = 0;
     let validLines = 0;
     let hasOverdraft = false;
 
@@ -370,14 +346,15 @@ function calculateTourneeTotals() {
     const rows = document.querySelectorAll("#tournee_tbody tr");
     rows.forEach(tr => {
         const prodSelect = tr.querySelector('.titem-product');
-        const formatSelect = tr.querySelector('.titem-format');
         const qtyInput = tr.querySelector('.titem-qty');
+        const rowId = tr.id.replace('trow_', '');
+        const hasDemiChk = document.getElementById(`thas_demi_${rowId}`);
         const prodId = parseInt(prodSelect?.value) || 0;
         const qty = parseFloat(qtyInput?.value) || 0;
-        const format = formatSelect?.value || 'casier';
-        const equiv = (format === 'demi') ? (qty * 0.5) : qty;
+        const hasDemi = (hasDemiChk && hasDemiChk.checked) ? 1 : 0;
+        const equiv = qty + (hasDemi ? 0.5 : 0.0);
 
-        if (prodId > 0 && qty > 0) {
+        if (prodId > 0 && equiv > 0) {
             requestedStockByProd[prodId] = (requestedStockByProd[prodId] || 0) + equiv;
         }
     });
@@ -385,25 +362,45 @@ function calculateTourneeTotals() {
     // 2. Validate rows against aggregated total and compute totals
     rows.forEach(tr => {
         const prodSelect = tr.querySelector('.titem-product');
-        const formatSelect = tr.querySelector('.titem-format');
         const priceInput = tr.querySelector('.titem-price');
         const qtyInput = tr.querySelector('.titem-qty');
         const rowId = tr.id.replace('trow_', '');
+        const hasDemiChk = document.getElementById(`thas_demi_${rowId}`);
+        const demiPriceHidden = document.getElementById(`tdemi_price_${rowId}`);
         const lineTotalDisplay = document.getElementById(`titem_line_total_${rowId}`);
         const stockBadge = document.getElementById(`titem_stock_badge_${rowId}`);
 
         const prodId = parseInt(prodSelect?.value) || 0;
         const prod = availableProducts.find(p => p.id === prodId);
         const qty = parseFloat(qtyInput?.value) || 0;
-        const price = parseFloat(priceInput?.value) || 0;
-        const format = formatSelect?.value || 'casier';
+        const hasDemi = (hasDemiChk && hasDemiChk.checked) ? 1 : 0;
+        const priceCasier = parseFloat(priceInput?.value) || 0;
 
-        const lineTotal = qty * price;
+        // Dynamic demi price calculation based on the entered casier price
+        let priceDemi = 0;
+        if (prod) {
+            if (priceCasier === prod.price_casier && prod.price_demi > 0) {
+                priceDemi = prod.price_demi;
+            } else {
+                priceDemi = Math.round(priceCasier / 2);
+            }
+            if (demiPriceHidden) demiPriceHidden.value = priceDemi;
+            const demiPriceTag = document.getElementById(`tdemi_price_tag_${rowId}`);
+            if (demiPriceTag) {
+                demiPriceTag.innerText = `(+${new Intl.NumberFormat('fr-FR').format(priceDemi)} F)`;
+            }
+        } else {
+            priceDemi = parseFloat(demiPriceHidden?.value) || 0;
+        }
+
+        const lineTotal = (qty * priceCasier) + (hasDemi ? priceDemi : 0.0);
         grandTotal += lineTotal;
-        totalQty += qty;
 
-        if (prod && qty > 0) {
+        const equiv = qty + (hasDemi ? 0.5 : 0.0);
+
+        if (prod && equiv > 0) {
             validLines++;
+            totalCasiersEquiv += equiv;
             const totalRequested = requestedStockByProd[prodId] || 0;
             if (totalRequested > prod.stock) {
                 qtyInput.style.borderColor = "#DC2626";
@@ -431,7 +428,7 @@ function calculateTourneeTotals() {
     });
 
     document.getElementById("tournee_lines_count").innerText = validLines;
-    document.getElementById("tournee_total_qty").innerText = totalQty;
+    document.getElementById("tournee_total_qty").innerText = totalCasiersEquiv.toFixed(1);
     document.getElementById("tournee_grand_total").innerText = new Intl.NumberFormat('fr-FR').format(grandTotal) + " FCFA";
 
     const submitBtn = document.getElementById("submit_tournee_btn");

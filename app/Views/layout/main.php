@@ -13,13 +13,9 @@ $hideSidebar = !empty($hide_sidebar);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= isset($title) ? htmlspecialchars($title) . ' - ' : '' ?>Dépôt La Cachette</title>
     
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- BoxIcons -->
-    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+    <!-- Local Fonts & Icons (100% Offline Compatible) -->
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/inter.css">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/boxicons.min.css">
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/style.css">

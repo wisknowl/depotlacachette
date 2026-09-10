@@ -102,6 +102,7 @@ class TourneesModel {
                 p.is_returnable,
                 p.cout_emballage,
                 p.packaging_type_id,
+                p.format_id,
                 p.factor,
                 p.purchase_price,
                 f.name as format_name,
@@ -109,13 +110,12 @@ class TourneesModel {
                 pt.name as packaging_name,
                 pt.color as packaging_color,
                 COALESCE((
-                    SELECT SUM(si.quantity) 
+                    SELECT SUM(si.stock_equivalent) 
                     FROM sale_items si 
                     JOIN sales s ON si.sale_id = s.id 
                     WHERE s.tournee_id = ti.tournee_id 
                       AND s.status = 'Valid' 
-                      AND si.product_id = ti.product_id 
-                      AND si.format_type = ti.format_type
+                      AND si.product_id = ti.product_id
                 ), 0) as calculated_qty_sold
             FROM tournee_items ti
             JOIN products p ON ti.product_id = p.id
@@ -273,9 +273,9 @@ class TourneesModel {
                 pt.company as packaging_company,
                 pt.color as packaging_color,
                 pt.bottles_per_crate,
-                SUM(CASE WHEN ti.format_type = 'demi' THEN ti.qty_loaded * 0.5 ELSE ti.qty_loaded END) as total_loaded_equiv,
+                SUM(ti.qty_loaded + (CASE WHEN ti.has_demi = 1 OR ti.format_type = 'demi' THEN 0.5 ELSE 0.0 END)) as total_loaded_equiv,
                 COALESCE((
-                    SELECT SUM(CASE WHEN si.format_type = 'demi' THEN si.quantity * 0.5 ELSE si.quantity END)
+                    SELECT SUM(si.stock_equivalent)
                     FROM sale_items si 
                     JOIN sales s ON si.sale_id = s.id 
                     WHERE s.tournee_id = ti.tournee_id 
@@ -342,10 +342,11 @@ class TourneesModel {
             foreach ($rawItems as $idx => $item) {
                 $prodId = intval($item['product_id'] ?? 0);
                 $qty = floatval($item['quantity'] ?? 0);
-                $formatType = in_array($item['format_type'] ?? '', ['casier', 'demi', 'unite']) ? $item['format_type'] : 'casier';
+                $hasDemi = !empty($item['has_demi']) ? 1 : 0;
                 $unitPrice = floatval($item['unit_price'] ?? 0);
+                $demiUnitPrice = floatval($item['demi_unit_price'] ?? 0);
 
-                if ($prodId <= 0 || $qty <= 0) continue;
+                if ($prodId <= 0 || ($qty <= 0 && !$hasDemi)) continue;
 
                 if (!isset($productsStockMap[$prodId])) {
                     // Check warehouse stock
@@ -372,23 +373,32 @@ class TourneesModel {
                 }
 
                 $product = $productsStockMap[$prodId];
-                $equiv = ($formatType === 'demi') ? ($qty * 0.5) : $qty;
+                $equiv = $qty + ($hasDemi ? 0.5 : 0.0);
                 $requestedStockByProduct[$prodId] = ($requestedStockByProduct[$prodId] ?? 0) + $equiv;
 
                 if ($unitPrice <= 0) {
-                    $unitPrice = ($formatType === 'demi') ? floatval($product['price_demi'] ?: ($product['price_casier'] / 2)) : floatval($product['price_casier']);
+                    $unitPrice = floatval($product['price_casier'] ?? 0);
+                }
+                if ($hasDemi) {
+                    if ($demiUnitPrice <= 0) {
+                        $demiUnitPrice = floatval($product['price_demi'] ?: round($unitPrice / 2));
+                    } elseif ($unitPrice != floatval($product['price_casier'] ?? 0) && $demiUnitPrice == floatval($product['price_demi'] ?? 0)) {
+                        $demiUnitPrice = round($unitPrice / 2);
+                    }
                 }
 
-                $lineTotal = $qty * $unitPrice;
+                $lineTotal = ($qty * $unitPrice) + ($hasDemi ? $demiUnitPrice : 0.0);
                 $totalLoadedAmount += $lineTotal;
 
                 $processedItems[] = [
                     'product_id' => $prodId,
                     'format_id' => $product['format_id'] ?? null,
-                    'format_type' => $formatType,
+                    'format_type' => $hasDemi ? ($qty > 0 ? 'casier' : 'demi') : 'casier',
+                    'has_demi' => $hasDemi,
                     'qty_loaded' => $qty,
                     'stock_equivalent' => $equiv,
                     'unit_price' => $unitPrice,
+                    'demi_unit_price' => $demiUnitPrice,
                     'product_name' => $product['name']
                 ];
             }
@@ -416,8 +426,8 @@ class TourneesModel {
 
             // Insert Items and Stock Movements (OUT from warehouse)
             $stmtItem = $this->db->prepare("
-                INSERT INTO tournee_items (tournee_id, product_id, format_type, qty_loaded, unit_price)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO tournee_items (tournee_id, product_id, format_type, has_demi, stock_equivalent, qty_loaded, unit_price, demi_unit_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $stmtMov = $this->db->prepare("
@@ -426,7 +436,7 @@ class TourneesModel {
             ");
 
             foreach ($processedItems as $it) {
-                $stmtItem->execute([$tourneeId, $it['product_id'], $it['format_type'], $it['qty_loaded'], $it['unit_price']]);
+                $stmtItem->execute([$tourneeId, $it['product_id'], $it['format_type'], $it['has_demi'], $it['stock_equivalent'], $it['qty_loaded'], $it['unit_price'], $it['demi_unit_price']]);
                 
                 // Movement OUT (Chargement Tournée Route)
                 $stmtMov->execute([
@@ -454,6 +464,27 @@ class TourneesModel {
         }
     }
 
+    public function getTourneeReturnedEmballagesSummary($tourneeId) {
+        $stmt = $this->db->prepare("
+            SELECT 
+                pt.id as packaging_type_id,
+                pt.name as packaging_name,
+                pt.company,
+                pt.color,
+                pt.bottles_per_crate,
+                COALESCE(SUM(si.crates_returned), 0) as total_crates_returned,
+                COALESCE(SUM(si.bottles_returned), 0) as total_bottles_returned
+            FROM sales s
+            JOIN sale_items si ON s.id = si.sale_id
+            JOIN products p ON si.product_id = p.id
+            JOIN packaging_types pt ON p.packaging_type_id = pt.id
+            WHERE s.tournee_id = ? AND s.status = 'Valid' AND si.is_returnable = 1
+            GROUP BY pt.id, pt.name, pt.company, pt.color, pt.bottles_per_crate
+        ");
+        $stmt->execute([$tourneeId]);
+        return $stmt->fetchAll();
+    }
+
     public function saveDecharge($tourneeId, $data, $userId = 1) {
         $this->db->beginTransaction();
         try {
@@ -468,9 +499,9 @@ class TourneesModel {
             $reference = $tournee['reference'];
             $items = $this->getItems($tourneeId);
 
-            // 1. Calculate actual sales made per product from linked sales
+            // 1. Calculate actual sales made per product from linked sales (in stock_equivalent)
             $sales = $this->getSales($tourneeId);
-            $soldQuantities = [];
+            $soldStockEquivByProduct = [];
             $totalSalesAmount = 0;
             $totalCashCollectedFromSales = 0;
 
@@ -478,16 +509,16 @@ class TourneesModel {
                 if ($s['status'] === 'Valid') {
                     $totalSalesAmount += floatval($s['total_amount']);
                     if ($s['payment_method_id'] != 5) { // Not credit
-                        $totalCashCollectedFromSales += floatval($s['amount_paid'] ?: $s['total_amount']);
+                        $totalCashCollectedFromSales += floatval($s['amount_paid'] ?: $s['total_amount']) + floatval($s['excess_amount'] ?? 0);
                     }
 
                     // Get items of this sale
-                    $stmtSaleItems = $this->db->prepare("SELECT product_id, format_type, quantity FROM sale_items WHERE sale_id = ?");
+                    $stmtSaleItems = $this->db->prepare("SELECT product_id, stock_equivalent FROM sale_items WHERE sale_id = ?");
                     $stmtSaleItems->execute([$s['id']]);
                     $sItems = $stmtSaleItems->fetchAll();
                     foreach ($sItems as $si) {
-                        $key = $si['product_id'] . '_' . $si['format_type'];
-                        $soldQuantities[$key] = ($soldQuantities[$key] ?? 0) + floatval($si['quantity']);
+                        $pId = intval($si['product_id']);
+                        $soldStockEquivByProduct[$pId] = ($soldStockEquivByProduct[$pId] ?? 0) + floatval($si['stock_equivalent']);
                     }
                 }
             }
@@ -497,7 +528,7 @@ class TourneesModel {
             $stmtUpdateItem = $this->db->prepare("
                 UPDATE tournee_items 
                 SET qty_sold = ?, qty_returned = ?, qty_shortage = ?
-                WHERE tournee_id = ? AND product_id = ? AND format_type = ?
+                WHERE id = ?
             ");
 
             $stmtReturnMov = $this->db->prepare("
@@ -506,10 +537,21 @@ class TourneesModel {
             ");
 
             foreach ($items as $it) {
-                $key = $it['product_id'] . '_' . $it['format_type'];
-                $qtySold = floatval($soldQuantities[$key] ?? 0);
-                $qtyReturned = floatval($returnsInput[$it['id']] ?? 0);
-                $qtyLoaded = floatval($it['qty_loaded']);
+                $pId = intval($it['product_id']);
+                $qtySold = floatval($soldStockEquivByProduct[$pId] ?? 0);
+                
+                $retVal = $returnsInput[$it['id']] ?? 0;
+                $retCrates = 0;
+                $retHasDemi = 0;
+                if (is_array($retVal)) {
+                    $retCrates = floatval($retVal['crates'] ?? 0);
+                    $retHasDemi = !empty($retVal['has_demi']) ? 1 : 0;
+                } else {
+                    $retCrates = floatval($retVal);
+                }
+
+                $qtyReturned = $retCrates + ($retHasDemi ? 0.5 : 0.0);
+                $qtyLoaded = floatval($it['qty_loaded']) + (!empty($it['has_demi']) ? 0.5 : 0.0);
                 
                 // Shortage = Loaded - Sold - Returned
                 $qtyShortage = max(0, $qtyLoaded - ($qtySold + $qtyReturned));
@@ -518,21 +560,18 @@ class TourneesModel {
                     $qtySold,
                     $qtyReturned,
                     $qtyShortage,
-                    $tourneeId,
-                    $it['product_id'],
-                    $it['format_type']
+                    $it['id']
                 ]);
 
                 // If unsold drinks returned, reintegrate into warehouse stock (IN)
                 if ($qtyReturned > 0) {
-                    $equiv = ($it['format_type'] === 'demi') ? ($qtyReturned * 0.5) : $qtyReturned;
                     $stmtReturnMov->execute([
                         $it['product_id'],
-                        $it['format_id'] ?? null,
+                        intval($it['format_id'] ?: 1),
                         $it['format_type'],
                         $tourneeId,
+                        $retCrates,
                         $qtyReturned,
-                        $equiv,
                         $it['unit_price'],
                         $reference,
                         $userId
@@ -540,23 +579,28 @@ class TourneesModel {
                 }
             }
 
-            // 3. Process Empty Crates Returned from Truck
+            // 3. Process Empty Crates and Loose Bottles Returned from Truck
             $emptyCratesReturned = $data['empty_crates_returned'] ?? [];
+            $looseBottlesReturned = $data['loose_bottles_returned'] ?? [];
+            
             $stmtEmbMov = $this->db->prepare("
-                INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, crates_in, notes, created_by)
-                VALUES (?, 'Route_Return', ?, ?, ?, ?)
+                INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, crates_in, bottles_in, notes, created_by)
+                VALUES (?, 'Route_Return', ?, ?, ?, ?, ?)
             ");
             $stmtEmbStock = $this->db->prepare("
                 INSERT INTO emballage_stock (packaging_type_id, empty_crates, loose_bottles)
-                VALUES (?, ?, 0)
-                ON DUPLICATE KEY UPDATE empty_crates = empty_crates + VALUES(empty_crates)
+                VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE empty_crates = empty_crates + VALUES(empty_crates), loose_bottles = loose_bottles + VALUES(loose_bottles)
             ");
 
-            foreach ($emptyCratesReturned as $pkgTypeId => $cCount) {
-                $crates = intval($cCount);
-                if ($crates > 0) {
-                    $stmtEmbMov->execute([$pkgTypeId, $tourneeId, $crates, "Retour casiers vides de tournée $reference", $userId]);
-                    $stmtEmbStock->execute([$pkgTypeId, $crates]);
+            $allPkgIds = array_unique(array_merge(array_keys($emptyCratesReturned), array_keys($looseBottlesReturned)));
+            foreach ($allPkgIds as $pkgTypeId) {
+                $pkgId = intval($pkgTypeId);
+                $crates = intval($emptyCratesReturned[$pkgId] ?? 0);
+                $bottles = intval($looseBottlesReturned[$pkgId] ?? 0);
+                if ($crates > 0 || $bottles > 0) {
+                    $stmtEmbMov->execute([$pkgId, $tourneeId, $crates, $bottles, "Retour casiers ($crates) & bouteilles vrac ($bottles) tournée $reference", $userId]);
+                    $stmtEmbStock->execute([$pkgId, $crates, $bottles]);
                 }
             }
 
@@ -608,7 +652,7 @@ class TourneesModel {
                 // Record cash transaction in cash_transactions
                 $this->db->prepare("
                     INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id)
-                    VALUES (NOW(), 'Deposit', ?, ?, ?, ?, 0.00, ?)
+                    VALUES (NOW(), 'Tournee', ?, ?, ?, ?, 0.00, ?)
                 ")->execute([
                     $tourneeId,
                     "Versement net décharge tournée $reference (Chauffeur: {$tournee['driver_name']})",
@@ -616,6 +660,27 @@ class TourneesModel {
                     $cashDeposited,
                     $userId
                 ]);
+            }
+
+            // 5b. Generate official Client Avoirs (client_payments) for any excess cash collected by driver on this tournee
+            $ventesModel = new \App\Models\VentesModel();
+            foreach ($sales as $s) {
+                $excess = floatval($s['excess_amount'] ?? 0);
+                if ($s['status'] === 'Valid' && $excess > 0) {
+                    $stmtCheck = $this->db->prepare("SELECT id FROM client_payments WHERE reference = ?");
+                    $stmtCheck->execute([$s['id']]);
+                    if (!$stmtCheck->fetch()) {
+                        $advId = $ventesModel->generateClientPaymentId();
+                        $advNotes = "Avoir Client tournée {$reference} - Trop-perçu Vente {$s['id']} (Validé à la décharge)";
+                        $this->db->prepare("
+                            INSERT INTO client_payments (id, payment_date, client_id, amount, payment_method_id, cash_account_id, reference, notes, user_id)
+                            VALUES (?, CURRENT_DATE, ?, ?, 1, ?, ?, ?, ?)
+                        ")->execute([
+                            $advId, $s['client_id'], $excess,
+                            $cashAccountId, $s['id'], $advNotes, $userId
+                        ]);
+                    }
+                }
             }
 
             // 6. Update Tournée Header Status to 'Cloturee'
@@ -651,57 +716,161 @@ class TourneesModel {
         }
     }
 
-    public function cancelTournee($tourneeId, $userId = 1, $reason = '') {
+    public function reopenTournee($tourneeId, $userId = 1, $reason = '') {
         $this->db->beginTransaction();
         try {
             $tournee = $this->getById($tourneeId);
             if (!$tournee) {
                 throw new \Exception("Tournée introuvable.");
             }
-            if ($tournee['status'] !== 'En_Route') {
-                throw new \Exception("Seule une tournée en cours peut être annulée.");
-            }
-
-            // Check if any sales are linked
-            $salesCount = $this->db->query("SELECT COUNT(*) FROM sales WHERE tournee_id = $tourneeId AND status = 'Valid'")->fetchColumn();
-            if ($salesCount > 0) {
-                throw new \Exception("Impossible d'annuler cette tournée car $salesCount vente(s) y sont rattachée(s). Veuillez d'abord annuler les ventes correspondantes.");
+            if ($tournee['status'] !== 'Cloturee') {
+                throw new \Exception("Seule une tournée déjà clôturée peut être réouverte.");
             }
 
             $reference = $tournee['reference'];
-            $items = $this->getItems($tourneeId);
 
-            // Reintegrate all loaded items back to warehouse stock (IN)
-            $stmtReturnMov = $this->db->prepare("
+            // 1. Invert Net Cash Deposit (Storno: Withdrawal from cash register for net deposited)
+            $stmtNetCash = $this->db->prepare("
+                SELECT cash_account_id,
+                       SUM(amount_in - amount_out) as net_cash
+                FROM cash_transactions
+                WHERE source_id = ? AND transaction_type IN ('Tournee', 'Deposit', 'Withdrawal')
+                GROUP BY cash_account_id
+                HAVING net_cash > 0
+            ");
+            $stmtNetCash->execute([$tourneeId]);
+            $cashRows = $stmtNetCash->fetchAll();
+
+            foreach ($cashRows as $cr) {
+                $netAmount = floatval($cr['net_cash']);
+                if ($netAmount > 0) {
+                    $this->db->prepare("
+                        INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id)
+                        VALUES (NOW(), 'Tournee', ?, ?, ?, 0.00, ?, ?)
+                    ")->execute([
+                        $tourneeId,
+                        "Annulation versement décharge tournée $reference (Réouverture)" . (!empty($reason) ? " - Motif: $reason" : ""),
+                        $cr['cash_account_id'],
+                        $netAmount,
+                        $userId
+                    ]);
+                }
+            }
+
+            // 2. Invert Net Unsold Drinks Returned to Warehouse Stock (Movement OUT)
+            $stmtNetStock = $this->db->prepare("
+                SELECT product_id, format_id, format_type, unit_price,
+                       SUM(CASE WHEN source_type = 'TourneeReturn' THEN stock_equivalent ELSE -stock_equivalent END) as net_returned_equiv,
+                       SUM(CASE WHEN source_type = 'TourneeReturn' THEN quantity ELSE -quantity END) as net_returned_qty
+                FROM stock_movements
+                WHERE source_id = ? AND source_type IN ('TourneeReturn', 'TourneeReturnReversal')
+                GROUP BY product_id, format_id, format_type, unit_price
+                HAVING net_returned_equiv > 0
+            ");
+            $stmtNetStock->execute([$tourneeId]);
+            $stockRows = $stmtNetStock->fetchAll();
+
+            $stmtReversalStock = $this->db->prepare("
                 INSERT INTO stock_movements (movement_date, product_id, format_id, format_type, movement_type_id, source_type, source_id, quantity, stock_equivalent, unit_price, reference, user_id)
-                VALUES (CURRENT_DATE, ?, ?, ?, 10, 'TourneeCancellation', ?, ?, ?, ?, ?, ?)
+                VALUES (CURRENT_DATE, ?, ?, ?, 6, 'TourneeReturnReversal', ?, ?, ?, ?, ?, ?)
             ");
 
-            foreach ($items as $it) {
-                $equiv = ($it['format_type'] === 'demi') ? ($it['qty_loaded'] * 0.5) : $it['qty_loaded'];
-                $stmtReturnMov->execute([
-                    $it['product_id'],
-                    $it['format_id'] ?? null,
-                    $it['format_type'],
+            foreach ($stockRows as $sr) {
+                $stmtReversalStock->execute([
+                    $sr['product_id'],
+                    intval($sr['format_id'] ?: 1),
+                    $sr['format_type'],
                     $tourneeId,
-                    $it['qty_loaded'],
-                    $equiv,
-                    $it['unit_price'],
-                    $reference,
+                    $sr['net_returned_qty'],
+                    $sr['net_returned_equiv'],
+                    $sr['unit_price'],
+                    "Annulation retour invendus décharge $reference",
                     $userId
                 ]);
             }
 
-            // Update status to Annulee
+            // 3. Invert Net Returned Empty Crates & Loose Bottles from Depot Emballage Stock
+            $stmtNetEmb = $this->db->prepare("
+                SELECT packaging_type_id,
+                       SUM(crates_in - crates_out) as net_crates,
+                       SUM(bottles_in - bottles_out) as net_bottles
+                FROM emballage_movements
+                WHERE reference_id = ? AND movement_type IN ('Route_Return', 'Adjustment_Minus')
+                GROUP BY packaging_type_id
+                HAVING net_crates > 0 OR net_bottles > 0
+            ");
+            $stmtNetEmb->execute([$tourneeId]);
+            $embRows = $stmtNetEmb->fetchAll();
+
+            $stmtReduceEmpty = $this->db->prepare("
+                UPDATE emballage_stock 
+                SET empty_crates = GREATEST(0, empty_crates - ?),
+                    loose_bottles = GREATEST(0, loose_bottles - ?)
+                WHERE packaging_type_id = ?
+            ");
+
+            $stmtEmbCompensate = $this->db->prepare("
+                INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, crates_in, crates_out, bottles_in, bottles_out, notes, created_by)
+                VALUES (?, 'Adjustment_Minus', ?, 0, ?, 0, ?, ?, ?)
+            ");
+
+            foreach ($embRows as $er) {
+                $pkgId = intval($er['packaging_type_id']);
+                $netCrates = intval($er['net_crates']);
+                $netBottles = intval($er['net_bottles']);
+                if ($netCrates > 0 || $netBottles > 0) {
+                    $stmtReduceEmpty->execute([$netCrates, $netBottles, $pkgId]);
+                    $stmtEmbCompensate->execute([
+                        $pkgId,
+                        $tourneeId,
+                        $netCrates,
+                        $netBottles,
+                        "Annulation retour emballages décharge $reference (Réouverture)",
+                        $userId
+                    ]);
+                }
+            }
+
+            // 4. Clean up road expenses created during this décharge
+            $this->db->prepare("
+                DELETE FROM expenses 
+                WHERE tournee_id = ?
+            ")->execute([$tourneeId]);
+
+            // 4b. Reverse any Avoirs created during décharge of this tournee
+            $stmtTourneeSales = $this->db->prepare("SELECT id FROM sales WHERE tournee_id = ?");
+            $stmtTourneeSales->execute([$tourneeId]);
+            $tSaleIds = $stmtTourneeSales->fetchAll(\PDO::FETCH_COLUMN);
+            if (!empty($tSaleIds)) {
+                $inClause = implode(',', array_fill(0, count($tSaleIds), '?'));
+                $this->db->prepare("DELETE FROM client_payments WHERE reference IN ($inClause)")->execute($tSaleIds);
+            }
+
+            // 5. Update Tournée Header: revert to 'En_Route'
             $this->db->prepare("
                 UPDATE tournees 
-                SET status = 'Annulee',
-                    notes = CONCAT(COALESCE(notes, ''), ' [Annulée: ', ?, ']')
+                SET status = 'En_Route',
+                    total_sold_amount = 0,
+                    total_cash_collected = 0,
+                    total_expenses = 0,
+                    cash_deposited = 0,
+                    cash_shortage = 0,
+                    closed_at = NULL,
+                    notes = CONCAT(COALESCE(notes, ''), ' [Décharge réouverte le ', NOW(), ' par User #', ?, ' : ', ?, ']')
                 WHERE id = ?
-            ")->execute([$reason, $tourneeId]);
+            ")->execute([$userId, $reason, $tourneeId]);
 
-            // Audit log
-            \App\Core\Helper::logAudit('CANCEL_TOURNEE', 'Tournees', $tourneeId, "Annulation tournée $reference ($reason)");
+            // 5b. Reset items counters in tournee_items
+            $this->db->prepare("
+                UPDATE tournee_items 
+                SET qty_sold = 0,
+                    qty_returned = 0,
+                    qty_shortage = 0
+                WHERE tournee_id = ?
+            ")->execute([$tourneeId]);
+
+            // 6. Audit Log
+            \App\Core\Helper::logAudit('REOPEN_TOURNEE', 'Tournees', $tourneeId, "Réouverture de la décharge $reference : $reason");
 
             $this->db->commit();
             return true;
@@ -709,5 +878,178 @@ class TourneesModel {
             $this->db->rollBack();
             throw $e;
         }
+    }
+
+    public function cancelTourneeComplete($tourneeId, $userId = 1, $reason = '') {
+        $this->db->beginTransaction();
+        try {
+            $tournee = $this->getById($tourneeId);
+            if (!$tournee) {
+                throw new \Exception("Tournée introuvable.");
+            }
+            if ($tournee['status'] === 'Annulee') {
+                throw new \Exception("Cette tournée est déjà annulée.");
+            }
+
+            $reference = $tournee['reference'];
+
+            // 1. If tournee was closed, undo all evening decharge movements (using net active balance)
+            if ($tournee['status'] === 'Cloturee') {
+                // Invert Net Cash Deposit
+                $stmtNetCash = $this->db->prepare("
+                    SELECT cash_account_id,
+                           SUM(amount_in - amount_out) as net_cash
+                    FROM cash_transactions
+                    WHERE source_id = ? AND transaction_type IN ('Deposit', 'Withdrawal')
+                    GROUP BY cash_account_id
+                    HAVING net_cash > 0
+                ");
+                $stmtNetCash->execute([$tourneeId]);
+                $cashRows = $stmtNetCash->fetchAll();
+
+                foreach ($cashRows as $cr) {
+                    $netAmount = floatval($cr['net_cash']);
+                    if ($netAmount > 0) {
+                        $this->db->prepare("
+                            INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id)
+                            VALUES (NOW(), 'Withdrawal', ?, ?, ?, 0.00, ?, ?)
+                        ")->execute([
+                            $tourneeId,
+                            "Annulation versement décharge tournée $reference (Annulation totale)" . (!empty($reason) ? " - Motif: $reason" : ""),
+                            $cr['cash_account_id'],
+                            $netAmount,
+                            $userId
+                        ]);
+                    }
+                }
+
+                // Invert Net Unsold Drinks Returned to Warehouse
+                $stmtNetStock = $this->db->prepare("
+                    SELECT product_id, format_id, format_type, unit_price,
+                           SUM(CASE WHEN source_type = 'TourneeReturn' THEN stock_equivalent ELSE -stock_equivalent END) as net_returned_equiv,
+                           SUM(CASE WHEN source_type = 'TourneeReturn' THEN quantity ELSE -quantity END) as net_returned_qty
+                    FROM stock_movements
+                    WHERE source_id = ? AND source_type IN ('TourneeReturn', 'TourneeReturnReversal')
+                    GROUP BY product_id, format_id, format_type, unit_price
+                    HAVING net_returned_equiv > 0
+                ");
+                $stmtNetStock->execute([$tourneeId]);
+                $stockRows = $stmtNetStock->fetchAll();
+
+                $stmtReversalStock = $this->db->prepare("
+                    INSERT INTO stock_movements (movement_date, product_id, format_id, format_type, movement_type_id, source_type, source_id, quantity, stock_equivalent, unit_price, reference, user_id)
+                    VALUES (CURRENT_DATE, ?, ?, ?, 6, 'TourneeReturnReversal', ?, ?, ?, ?, ?, ?)
+                ");
+                foreach ($stockRows as $sr) {
+                    $stmtReversalStock->execute([
+                        $sr['product_id'],
+                        intval($sr['format_id'] ?: 1),
+                        $sr['format_type'],
+                        $tourneeId,
+                        $sr['net_returned_qty'],
+                        $sr['net_returned_equiv'],
+                        $sr['unit_price'],
+                        "Annulation retour invendus décharge $reference",
+                        $userId
+                    ]);
+                }
+
+                // Invert Net Returned Empty Crates
+                $stmtNetEmb = $this->db->prepare("
+                    SELECT packaging_type_id,
+                           SUM(crates_in - crates_out) as net_crates,
+                           SUM(bottles_in - bottles_out) as net_bottles
+                    FROM emballage_movements
+                    WHERE reference_id = ? AND movement_type IN ('Route_Return', 'Adjustment_Minus')
+                    GROUP BY packaging_type_id
+                    HAVING net_crates > 0 OR net_bottles > 0
+                ");
+                $stmtNetEmb->execute([$tourneeId]);
+                $embRows = $stmtNetEmb->fetchAll();
+
+                $stmtReduceEmpty = $this->db->prepare("
+                    UPDATE emballage_stock 
+                    SET empty_crates = GREATEST(0, empty_crates - ?),
+                        loose_bottles = GREATEST(0, loose_bottles - ?)
+                    WHERE packaging_type_id = ?
+                ");
+
+                $stmtEmbCompensate = $this->db->prepare("
+                    INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, crates_in, crates_out, bottles_in, bottles_out, notes, created_by)
+                    VALUES (?, 'Adjustment_Minus', ?, 0, ?, 0, ?, ?, ?)
+                ");
+                foreach ($embRows as $er) {
+                    $pkgId = intval($er['packaging_type_id']);
+                    $netCrates = intval($er['net_crates']);
+                    $netBottles = intval($er['net_bottles']);
+                    if ($netCrates > 0 || $netBottles > 0) {
+                        $stmtReduceEmpty->execute([$netCrates, $netBottles, $pkgId]);
+                        $stmtEmbCompensate->execute([$pkgId, $tourneeId, $netCrates, $netBottles, "Annulation retour emballages tournée $reference (Annulation totale)", $userId]);
+                    }
+                }
+
+                // Delete road expenses
+                $this->db->prepare("DELETE FROM expenses WHERE tournee_id = ?")->execute([$tourneeId]);
+            }
+
+            // 2. Cascade cancel all linked carnet sales (using route-safe logic: no depot stock/cash movement)
+            $stmtSales = $this->db->prepare("SELECT id FROM sales WHERE tournee_id = ? AND status = 'Valid'");
+            $stmtSales->execute([$tourneeId]);
+            $validSales = $stmtSales->fetchAll();
+
+            $vModel = new \App\Models\VentesModel();
+            foreach ($validSales as $s) {
+                $vModel->cancelSale($s['id'], $userId, "Annulation automatique suite à annulation totale tournée $reference : $reason", true);
+            }
+
+            // 3. Reintegrate all items loaded in the morning back into warehouse stock (IN)
+            $items = $this->getItems($tourneeId);
+            $stmtReturnMov = $this->db->prepare("
+                INSERT INTO stock_movements (movement_date, product_id, format_id, format_type, movement_type_id, source_type, source_id, quantity, stock_equivalent, unit_price, reference, user_id)
+                VALUES (CURRENT_DATE, ?, ?, ?, 10, 'TourneeCancellation', ?, ?, ?, ?, ?, ?)
+            ");
+
+            foreach ($items as $it) {
+                $hasDemi = !empty($it['has_demi']) || ($it['format_type'] === 'demi');
+                $equiv = floatval($it['stock_equivalent'] ?: ($it['qty_loaded'] + ($hasDemi ? 0.5 : 0.0)));
+                $stmtReturnMov->execute([
+                    $it['product_id'],
+                    intval($it['format_id'] ?: 1),
+                    $it['format_type'],
+                    $tourneeId,
+                    $it['qty_loaded'],
+                    $equiv,
+                    $it['unit_price'],
+                    "Restitution chargement matin tournée $reference (Annulation totale)",
+                    $userId
+                ]);
+            }
+
+            // 4. Update Tournée Header to 'Annulee'
+            $this->db->prepare("
+                UPDATE tournees 
+                SET status = 'Annulee',
+                    total_sold_amount = 0,
+                    total_cash_collected = 0,
+                    total_expenses = 0,
+                    cash_deposited = 0,
+                    cash_shortage = 0,
+                    notes = CONCAT(COALESCE(notes, ''), ' [Annulation totale le ', NOW(), ' par User #', ?, ' : ', ?, ']')
+                WHERE id = ?
+            ")->execute([$userId, $reason, $tourneeId]);
+
+            // 5. Audit Log
+            \App\Core\Helper::logAudit('CANCEL_TOURNEE_FULL', 'Tournees', $tourneeId, "Annulation totale tournée $reference : $reason");
+
+            $this->db->commit();
+            return true;
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    public function cancelTournee($tourneeId, $userId = 1, $reason = '') {
+        return $this->cancelTourneeComplete($tourneeId, $userId, $reason);
     }
 }

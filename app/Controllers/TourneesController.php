@@ -83,6 +83,7 @@ class TourneesController extends Controller {
         $cashAccounts = $this->model->getCashAccounts();
         $expenseCategories = $this->model->getExpenseCategories();
         $packagingTypes = $this->model->getPackagingTypes();
+        $emballagesReturnedSummary = $this->model->getTourneeReturnedEmballagesSummary($id);
 
         $this->view('pages/tournees/details', [
             'title' => 'Dépouillement & Décharge : ' . $tournee['reference'],
@@ -94,6 +95,7 @@ class TourneesController extends Controller {
             'cashAccounts' => $cashAccounts,
             'expenseCategories' => $expenseCategories,
             'packagingTypes' => $packagingTypes,
+            'emballagesReturnedSummary' => $emballagesReturnedSummary,
             'flash_success' => $_SESSION['flash_success'] ?? null,
             'flash_error' => $_SESSION['flash_error'] ?? null
         ]);
@@ -137,16 +139,57 @@ class TourneesController extends Controller {
         ]);
     }
 
+    public function rouvrir($id) {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $id = intval($id);
+            if (empty($_SESSION['user']) || strtolower($_SESSION['user']['role'] ?? '') !== 'admin') {
+                $_SESSION['flash_error'] = "Action non autorisée : Seul un Administrateur peut rouvrir une décharge de tournée.";
+                $this->redirect('tournees/details/' . $id);
+                return;
+            }
+
+            $reason = trim($_POST['reopen_reason'] ?? '');
+            if (mb_strlen($reason) < 5) {
+                $_SESSION['flash_error'] = "Veuillez fournir un motif valable (au moins 5 caractères) pour la réouverture de la décharge.";
+                $this->redirect('tournees/details/' . $id);
+                return;
+            }
+
+            try {
+                $userId = $_SESSION['user']['id'] ?? 1;
+                $this->model->reopenTournee($id, $userId, $reason);
+                $_SESSION['flash_success'] = "Décharge réouverte avec succès ! La tournée est remise au statut 'En Route'. Vous pouvez corriger les chiffres et re-clôturer.";
+            } catch (\Throwable $e) {
+                $_SESSION['flash_error'] = "Erreur lors de la réouverture : " . $e->getMessage();
+            }
+            $this->redirect('tournees/details/' . $id);
+            return;
+        }
+        $this->redirect('tournees');
+    }
+
     public function annuler($id) {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $id = intval($id);
-            $reason = trim($_POST['cancel_reason'] ?? 'Annulation par l\'utilisateur');
+            if (empty($_SESSION['user']) || strtolower($_SESSION['user']['role'] ?? '') !== 'admin') {
+                $_SESSION['flash_error'] = "Action non autorisée : Seul un Administrateur peut annuler une tournée.";
+                $this->redirect('tournees/details/' . $id);
+                return;
+            }
+
+            $reason = trim($_POST['cancel_reason'] ?? '');
+            if (mb_strlen($reason) < 5) {
+                $_SESSION['flash_error'] = "Veuillez fournir un motif valable (au moins 5 caractères) pour l'annulation de la tournée.";
+                $this->redirect('tournees/details/' . $id);
+                return;
+            }
+
             try {
                 $userId = $_SESSION['user']['id'] ?? 1;
-                $this->model->cancelTournee($id, $userId, $reason);
-                $_SESSION['flash_success'] = "Tournée annulée avec succès et stock réintégré intégralement en magasin.";
+                $this->model->cancelTourneeComplete($id, $userId, $reason);
+                $_SESSION['flash_success'] = "Tournée annulée avec succès : toutes les factures rattachées ont été annulées et le chargement initial du matin a été restitué au magasin.";
             } catch (\Throwable $e) {
-                $_SESSION['flash_error'] = "Erreur : " . $e->getMessage();
+                $_SESSION['flash_error'] = "Erreur lors de l'annulation : " . $e->getMessage();
             }
             $this->redirect('tournees/details/' . $id);
             return;

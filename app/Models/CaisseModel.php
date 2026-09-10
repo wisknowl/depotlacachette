@@ -63,10 +63,12 @@ class CaisseModel {
                 t.*, 
                 a.name as account_name,
                 u.username,
-                u.full_name as author_name
+                u.full_name as author_name,
+                tour.reference as tournee_reference
             FROM cash_transactions t
             LEFT JOIN cash_accounts a ON t.cash_account_id = a.id
             LEFT JOIN users u ON t.user_id = u.id
+            LEFT JOIN tournees tour ON (t.transaction_type = 'Tournee' AND t.source_id = CAST(tour.id AS CHAR))
             WHERE 1=1
         ";
         $params = [];
@@ -115,6 +117,10 @@ class CaisseModel {
                 $sql .= " AND t.transaction_type = 'Transfer'";
             } elseif ($filters['type'] === 'Payroll') {
                 $sql .= " AND t.transaction_type = 'Payroll'";
+            } elseif ($filters['type'] === 'Tournee') {
+                $sql .= " AND t.transaction_type = 'Tournee'";
+            } elseif ($filters['type'] === 'Withdrawal') {
+                $sql .= " AND t.transaction_type = 'Withdrawal'";
             }
         }
 

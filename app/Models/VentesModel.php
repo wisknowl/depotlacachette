@@ -21,6 +21,7 @@ class VentesModel {
                 ca.name as cash_account_name,
                 u.username,
                 t.reference as tournee_reference,
+                t.status as tournee_status,
                 COUNT(si.id) as item_count,
                 COALESCE(GROUP_CONCAT(CONCAT(p.name, ' (', si.quantity, ' ', CASE WHEN si.format_type = 'demi' THEN 'Demi' ELSE 'Casier' END, ')') SEPARATOR ', '), 'Aucun article') as products_summary
             FROM sales v
@@ -83,7 +84,7 @@ class VentesModel {
         }
 
         $sql .= "
-            GROUP BY v.id, v.sale_date, v.client_id, v.total_amount, v.payment_method_id, v.cash_account_id, v.reference, v.notes, v.user_id, v.tournee_id, v.sale_type, v.status, v.created_at, c.name, pm.name, pm.type, ca.name, u.username, t.reference
+            GROUP BY v.id, v.sale_date, v.client_id, v.total_amount, v.payment_method_id, v.cash_account_id, v.reference, v.notes, v.user_id, v.tournee_id, v.sale_type, v.status, v.created_at, c.name, pm.name, pm.type, ca.name, u.username, t.reference, t.status
             ORDER BY v.sale_date DESC, v.created_at DESC
         ";
 
@@ -97,13 +98,14 @@ class VentesModel {
             SELECT 
                 v.*, 
                 c.name as client_name, 
-                c.phone as client_phone,
+                c.phone as client_phone, 
                 c.address as client_address,
                 pm.name as payment_method_name,
                 pm.type as payment_method_type,
                 ca.name as cash_account_name,
                 u.username,
-                t.reference as tournee_reference
+                t.reference as tournee_reference,
+                t.status as tournee_status
             FROM sales v
             LEFT JOIN clients c ON v.client_id = c.id
             LEFT JOIN payment_methods pm ON v.payment_method_id = pm.id
@@ -263,6 +265,16 @@ class VentesModel {
         return 'V00001';
     }
 
+    private function generateClientPaymentId() {
+        $stmt = $this->db->query("SELECT id FROM client_payments ORDER BY id DESC LIMIT 1");
+        $last = $stmt->fetchColumn();
+        if ($last && preg_match('/RC(\d+)/', $last, $matches)) {
+            $num = intval($matches[1]) + 1;
+            return 'RC' . str_pad($num, 5, '0', STR_PAD_LEFT);
+        }
+        return 'RC00001';
+    }
+
     public function add($data) {
         $userId = intval($data['user_id'] ?? ($_SESSION['user']['id'] ?? 1));
         
@@ -290,13 +302,11 @@ class VentesModel {
         foreach ($rawItems as $idx => $item) {
             $prodId = intval($item['product_id'] ?? 0);
             $qty = floatval($item['quantity'] ?? 0);
-            $formatType = in_array($item['format_type'] ?? '', ['casier', 'demi']) ? $item['format_type'] : 'casier';
+            $hasDemi = !empty($item['has_demi']) ? 1 : 0;
             $unitPrice = floatval($item['unit_price'] ?? 0);
+            $demiUnitPrice = floatval($item['demi_unit_price'] ?? 0);
 
-            if ($prodId <= 0 || $qty <= 0) continue;
-            if ($unitPrice <= 0) {
-                throw new \Exception("Le prix unitaire à la ligne " . ($idx + 1) . " doit être supérieur à 0 FCFA.");
-            }
+            if ($prodId <= 0 || ($qty <= 0 && !$hasDemi)) continue;
 
             if (!isset($productsStockMap[$prodId])) {
                 $product = $this->getProductStock($prodId);
@@ -307,10 +317,25 @@ class VentesModel {
             }
             $product = $productsStockMap[$prodId];
 
-            $stockEquivalent = ($formatType === 'demi') ? ($qty * 0.5) : $qty;
+            if ($hasDemi) {
+                if ($demiUnitPrice <= 0) {
+                    $demiUnitPrice = floatval($product['price_demi'] ?? ($unitPrice > 0 ? round($unitPrice / 2) : 0));
+                } elseif ($unitPrice != floatval($product['price_casier'] ?? 0) && $demiUnitPrice == floatval($product['price_demi'] ?? 0)) {
+                    $demiUnitPrice = round($unitPrice / 2);
+                }
+            }
+
+            if ($qty > 0 && $unitPrice <= 0) {
+                throw new \Exception("Le prix unitaire du casier à la ligne " . ($idx + 1) . " doit être supérieur à 0 FCFA.");
+            }
+            if ($qty == 0 && $hasDemi && $demiUnitPrice <= 0) {
+                throw new \Exception("Le prix unitaire du demi à la ligne " . ($idx + 1) . " doit être supérieur à 0 FCFA.");
+            }
+
+            $stockEquivalent = $qty + ($hasDemi ? 0.5 : 0.0);
             $requestedStockByProduct[$prodId] = ($requestedStockByProduct[$prodId] ?? 0) + $stockEquivalent;
 
-            $lineTotal = $qty * $unitPrice;
+            $lineTotal = ($qty * $unitPrice) + ($hasDemi ? $demiUnitPrice : 0.0);
             $totalAmount += $lineTotal;
 
             $isReturnable = intval($product['is_returnable'] ?? 1);
@@ -323,24 +348,14 @@ class VentesModel {
             $netLooseBottlesDue = 0;
 
             if ($isReturnable) {
-                if ($formatType === 'casier') {
-                    $cratesOut = intval($qty);
-                    $bottlesOut = intval($qty) * $factor;
-                    $cratesReturned = isset($item['crates_returned']) ? intval($item['crates_returned']) : 0;
-                    $bottlesReturned = isset($item['bottles_returned']) ? intval($item['bottles_returned']) : 0;
-                    $totalBottlesRestituted = ($cratesReturned * $factor) + $bottlesReturned;
-                    $missingBottles = max(0, $bottlesOut - $totalBottlesRestituted);
-                    $netCratesDue = floor($missingBottles / $factor);
-                    $netLooseBottlesDue = $missingBottles % $factor;
-                } else { // Demi-casier
-                    $cratesOut = 0;
-                    $bottlesOut = intval($qty) * intval($factor / 2);
-                    $cratesReturned = 0;
-                    $bottlesReturned = isset($item['bottles_returned']) ? intval($item['bottles_returned']) : 0;
-                    $missingBottles = max(0, $bottlesOut - $bottlesReturned);
-                    $netCratesDue = floor($missingBottles / $factor);
-                    $netLooseBottlesDue = $missingBottles % $factor;
-                }
+                $cratesOut = intval($qty);
+                $bottlesOut = (intval($qty) * $factor) + ($hasDemi ? intval($factor / 2) : 0);
+                $cratesReturned = isset($item['crates_returned']) ? intval($item['crates_returned']) : 0;
+                $bottlesReturned = isset($item['bottles_returned']) ? intval($item['bottles_returned']) : 0;
+                $totalBottlesRestituted = ($cratesReturned * $factor) + $bottlesReturned;
+                $missingBottles = max(0, $bottlesOut - $totalBottlesRestituted);
+                $netCratesDue = floor($missingBottles / $factor);
+                $netLooseBottlesDue = $missingBottles % $factor;
             }
 
             $processedItems[] = [
@@ -348,7 +363,8 @@ class VentesModel {
                 'product_name' => $product['name'],
                 'packaging_type_id' => $product['packaging_type_id'],
                 'format_id' => $product['format_id'],
-                'format_type' => $formatType,
+                'format_type' => $hasDemi ? ($qty > 0 ? 'mixte' : 'demi') : 'casier',
+                'has_demi' => $hasDemi,
                 'is_returnable' => $isReturnable,
                 'crates_out' => $cratesOut,
                 'bottles_out' => $bottlesOut,
@@ -358,6 +374,7 @@ class VentesModel {
                 'net_bottles_due' => $netLooseBottlesDue,
                 'quantity' => $qty,
                 'unit_price' => $unitPrice,
+                'demi_unit_price' => $demiUnitPrice,
                 'total_price' => $lineTotal,
                 'stock_equivalent' => $stockEquivalent,
                 'purchase_price' => $product['purchase_price'],
@@ -377,9 +394,9 @@ class VentesModel {
             // Check truck loaded stock
             foreach ($requestedStockByProduct as $pId => $totalReq) {
                 $stmtTourneeItem = $this->db->prepare("
-                    SELECT ti.qty_loaded,
+                    SELECT ti.qty_loaded, ti.has_demi,
                            COALESCE((
-                               SELECT SUM(si.quantity) 
+                               SELECT SUM(si.stock_equivalent) 
                                FROM sale_items si 
                                JOIN sales s ON si.sale_id = s.id 
                                WHERE s.tournee_id = ti.tournee_id 
@@ -394,7 +411,8 @@ class VentesModel {
                 if (!$tItem) {
                     throw new \Exception("Le produit '" . htmlspecialchars($productsStockMap[$pId]['name']) . "' n'a pas été chargé sur le camion de cette tournée.");
                 }
-                $truckAvailable = floatval($tItem['qty_loaded']) - floatval($tItem['already_sold']);
+                $loadedEquiv = floatval($tItem['qty_loaded']) + (!empty($tItem['has_demi']) ? 0.5 : 0.0);
+                $truckAvailable = $loadedEquiv - floatval($tItem['already_sold']);
                 if ($totalReq > $truckAvailable) {
                     throw new \Exception("Stock camion insuffisant pour '" . htmlspecialchars($productsStockMap[$pId]['name']) . "'. Demandé sur cette facture : {$totalReq} casier(s), Restant sur camion : {$truckAvailable} casier(s).");
                 }
@@ -438,14 +456,16 @@ class VentesModel {
             $paymentMethodId = 5;
             $cashAccountId = null;
         } else {
-            $amountPaid = min($netPayableCash, max(0, floatval($data['amount_paid'] ?? $netPayableCash)));
+            $rawAmountPaid = is_null($data['amount_paid'] ?? null) ? $netPayableCash : max(0, floatval($data['amount_paid']));
+            $amountPaid = min($netPayableCash, $rawAmountPaid);
+            $excessCash = max(0, $rawAmountPaid - $netPayableCash);
             $cashShortage = max(0, $netPayableCash - $amountPaid);
             // In ledger math: amount_due = avoirUsed + cashShortage
             // (solde_du = amount_due - previous_payments = cashShortage - remaining_avoir)
             $amountDue = $avoirUsed + $cashShortage;
             $cashAccountId = intval($data['cash_account_id'] ?? 0);
             $accountInfo = $this->getCashAccount($cashAccountId);
-            if (!$accountInfo && $amountPaid > 0 && empty($tourneeId)) throw new \Exception("Compte d'encaissement invalide.");
+            if (!$accountInfo && ($amountPaid > 0 || $excessCash > 0) && empty($tourneeId)) throw new \Exception("Compte d'encaissement invalide.");
             $paymentMethodId = ($cashShortage > 0) ? ($amountPaid > 0 ? 1 : 5) : ($accountInfo['payment_method_id'] ?? 1);
         }
 
@@ -460,19 +480,19 @@ class VentesModel {
             $id = $this->generateSaleId();
 
             $stmt = $this->db->prepare("
-                INSERT INTO sales (id, sale_date, client_id, total_amount, discount_amount, avoir_used, amount_paid, amount_due, payment_method_id, cash_account_id, reference, notes, user_id, tournee_id, sale_type, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Valid')
+                INSERT INTO sales (id, sale_date, client_id, total_amount, discount_amount, avoir_used, amount_paid, amount_due, excess_amount, payment_method_id, cash_account_id, reference, notes, user_id, tournee_id, sale_type, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Valid')
             ");
             $stmt->execute([
-                $id, $data['sale_date'], $client['id'], $subTotal, $discountAmount, $avoirUsed, $amountPaid, $amountDue,
+                $id, $data['sale_date'], $client['id'], $subTotal, $discountAmount, $avoirUsed, $amountPaid, $amountDue, $excessCash,
                 $paymentMethodId, $cashAccountId, !empty($data['reference']) ? $data['reference'] : $id, $data['notes'] ?? '', $userId,
                 $tourneeId, $saleType
             ]);
 
 
             $stmtItem = $this->db->prepare("
-                INSERT INTO sale_items (sale_id, product_id, format_type, quantity, unit_price, total_price, stock_equivalent, is_returnable, crates_out, bottles_out, crates_returned, bottles_returned)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sale_items (sale_id, product_id, format_type, has_demi, quantity, unit_price, demi_unit_price, total_price, stock_equivalent, is_returnable, crates_out, bottles_out, crates_returned, bottles_returned)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $stmtStockMov = $this->db->prepare("
@@ -489,8 +509,8 @@ class VentesModel {
 
             foreach ($processedItems as $item) {
                 $stmtItem->execute([
-                    $id, $item['product_id'], $item['format_type'], $item['quantity'],
-                    $item['unit_price'], $item['total_price'], $item['stock_equivalent'], $item['is_returnable'],
+                    $id, $item['product_id'], $item['format_type'], $item['has_demi'], $item['quantity'],
+                    $item['unit_price'], $item['demi_unit_price'], $item['total_price'], $item['stock_equivalent'], $item['is_returnable'],
                     $item['crates_out'], $item['bottles_out'], $item['crates_returned'], $item['bottles_returned']
                 ]);
 
@@ -501,6 +521,15 @@ class VentesModel {
                         $data['sale_date'], $item['product_id'], $item['format_id'] ?? 1, $item['format_type'],
                         $id, $item['quantity'], $item['stock_equivalent'], $item['unit_price'], 'Vente ' . $id, $userId
                     ]);
+                }
+
+                if (!empty($item['update_catalog_price'])) {
+                    if ($item['unit_price'] > 0) {
+                        $this->db->prepare("UPDATE products SET price_casier = ? WHERE id = ?")->execute([$item['unit_price'], $item['product_id']]);
+                    }
+                    if ($item['demi_unit_price'] > 0) {
+                        $this->db->prepare("UPDATE products SET price_demi = ? WHERE id = ?")->execute([$item['demi_unit_price'], $item['product_id']]);
+                    }
                 }
 
                 if ($item['is_returnable'] && !empty($item['packaging_type_id'])) {
@@ -523,6 +552,9 @@ class VentesModel {
                         $itemTotalDue = ($item['net_crates_due'] * $factor) + $item['net_bottles_due'];
                         $finalTotalBtls = $curTotalBtls + $itemTotalDue;
                         $stmtUpsertDebt->execute([$client['id'], $pkgTypeId, floor($finalTotalBtls / $factor), $finalTotalBtls % $factor]);
+
+                        $this->db->prepare("INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, client_id, crates_out, bottles_out, notes, created_by) VALUES (?, 'Sale_Drink', ?, ?, ?, ?, ?, ?)")
+                                 ->execute([$pkgTypeId, $id, $client['id'], $item['net_crates_due'], $item['net_bottles_due'], "Sortie emballages non restitués (Dette Vente $id)", $userId]);
                     }
                 }
             }
@@ -532,6 +564,22 @@ class VentesModel {
             if (empty($tourneeId) && $amountPaid > 0 && $cashAccountId) {
                 $this->db->prepare("INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id) VALUES (?, 'Sale', ?, ?, ?, ?, 0.00, ?)")
                          ->execute([$data['sale_date'] . ' ' . date('H:i:s'), $id, 'Vente ' . $id . ' (' . $client['name'] . ')', $cashAccountId, $amountPaid, $userId]);
+            }
+
+            // Automatic Avoir creation if client paid excess cash above net payable
+            if (empty($tourneeId) && !empty($excessCash) && $excessCash > 0 && $cashAccountId) {
+                $advId = $this->generateClientPaymentId();
+                $advNotes = "Trop-perçu vente {$id} crédité en Avoir Client (Net Facture: " . number_format($netPayableCash, 0, ',', ' ') . " FCFA, Reçu: " . number_format($rawAmountPaid, 0, ',', ' ') . " FCFA)";
+                $this->db->prepare("
+                    INSERT INTO client_payments (id, payment_date, client_id, amount, payment_method_id, cash_account_id, reference, notes, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ")->execute([
+                    $advId, $data['sale_date'], $client['id'], $excessCash,
+                    $paymentMethodId, $cashAccountId, $id, $advNotes, $userId
+                ]);
+
+                $this->db->prepare("INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id) VALUES (?, 'ClientPayment', ?, ?, ?, ?, 0.00, ?)")
+                         ->execute([$data['sale_date'] . ' ' . date('H:i:s'), $advId, "Avoir Client automatique - Trop-perçu Vente {$id} ({$client['name']})", $cashAccountId, $excessCash, $userId]);
             }
 
             $this->db->commit();
@@ -655,18 +703,18 @@ class VentesModel {
 
         $isCredit = (($data['settlement_type'] ?? '') === 'credit' || (isset($data['payment_method_id']) && $data['payment_method_id'] == 5));
         $paymentMethodId = $isCredit ? 5 : intval($data['payment_method_id'] ?? 1);
-        $cashAccountId = null;
 
         if ($isCredit) {
             $amountPaid = 0.00;
             $amountDue = $grossNet;
+            $excessCash = 0.00;
         } else {
             $cashAccountId = !empty($data['cash_account_id']) ? intval($data['cash_account_id']) : 1;
-            $actualCashPaid = isset($data['amount_paid']) ? floatval($data['amount_paid']) : $netPayableCash;
-            if ($actualCashPaid > $netPayableCash) $actualCashPaid = $netPayableCash;
-            $cashShortage = max(0, $netPayableCash - $actualCashPaid);
+            $rawAmountPaid = is_null($data['amount_paid'] ?? null) ? $netPayableCash : max(0, floatval($data['amount_paid']));
+            $amountPaid = min($netPayableCash, $rawAmountPaid);
+            $excessCash = max(0, $rawAmountPaid - $netPayableCash);
+            $cashShortage = max(0, $netPayableCash - $amountPaid);
 
-            $amountPaid = $actualCashPaid;
             $amountDue = $avoirUsed + $cashShortage;
         }
 
@@ -684,12 +732,12 @@ class VentesModel {
         $this->db->beginTransaction();
         try {
             $stmt = $this->db->prepare("
-                INSERT INTO sales (id, sale_date, client_id, total_amount, discount_amount, avoir_used, amount_paid, amount_due, payment_method_id, cash_account_id, reference, notes, user_id, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Valid')
+                INSERT INTO sales (id, sale_date, client_id, total_amount, discount_amount, avoir_used, amount_paid, amount_due, excess_amount, payment_method_id, cash_account_id, reference, notes, user_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Valid')
             ");
             $stmt->execute([
-                $id, $data['sale_date'], $client['id'], $subTotal, $discountAmount, $avoirUsed, $amountPaid, $amountDue,
-                $paymentMethodId, $cashAccountId, $data['reference'] ?: $id, $data['notes'] ?? 'Vente au détail / Bouteilles', $userId
+                $id, $data['sale_date'], $client['id'], $subTotal, $discountAmount, $avoirUsed, $amountPaid, $amountDue, $excessCash,
+                $paymentMethodId, $cashAccountId, !empty($data['reference']) ? $data['reference'] : $id, $data['notes'] ?? 'Vente au détail / Bouteilles', $userId
             ]);
 
             $stmtItem = $this->db->prepare("
@@ -744,6 +792,9 @@ class VentesModel {
                         $newLoose = $curLoose + $item['net_loose_bottles_due'];
 
                         $stmtUpsertDebt->execute([$client['id'], $pkgTypeId, $curCrates, $newLoose]);
+
+                        $this->db->prepare("INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, client_id, bottles_out, notes, created_by) VALUES (?, 'Sale_Drink', ?, ?, ?, ?, ?)")
+                                 ->execute([$pkgTypeId, $id, $client['id'], $item['net_loose_bottles_due'], "Sortie bouteilles emportées non restituées (Vente Détail $id)", $userId]);
                     }
                 }
             }
@@ -751,6 +802,22 @@ class VentesModel {
             if ($amountPaid > 0 && $cashAccountId) {
                 $this->db->prepare("INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id) VALUES (?, 'Sale', ?, ?, ?, ?, 0.00, ?)")
                          ->execute([$data['sale_date'] . ' ' . date('H:i:s'), $id, 'Vente Détail ' . $id . ' (' . $client['name'] . ')', $cashAccountId, $amountPaid, $userId]);
+            }
+
+            // Automatic Avoir creation if client paid excess cash above net payable
+            if (!empty($excessCash) && $excessCash > 0 && $cashAccountId) {
+                $advId = $this->generateClientPaymentId();
+                $advNotes = "Trop-perçu vente détail {$id} crédité en Avoir Client (Net Facture: " . number_format($netPayableCash, 0, ',', ' ') . " FCFA, Reçu: " . number_format($rawAmountPaid, 0, ',', ' ') . " FCFA)";
+                $this->db->prepare("
+                    INSERT INTO client_payments (id, payment_date, client_id, amount, payment_method_id, cash_account_id, reference, notes, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ")->execute([
+                    $advId, $data['sale_date'], $client['id'], $excessCash,
+                    $paymentMethodId, $cashAccountId, $id, $advNotes, $userId
+                ]);
+
+                $this->db->prepare("INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id) VALUES (?, 'ClientPayment', ?, ?, ?, ?, 0.00, ?)")
+                         ->execute([$data['sale_date'] . ' ' . date('H:i:s'), $advId, "Avoir Client automatique - Trop-perçu Vente Détail {$id} ({$client['name']})", $cashAccountId, $excessCash, $userId]);
             }
 
             $this->db->commit();
@@ -761,22 +828,54 @@ class VentesModel {
         }
     }
 
-    public function cancelSale($id, $userId = 1, $reason = '') {
+    public function cancelSale($id, $userId = 1, $reason = '', $isCascadeFromTourneeCancellation = false) {
         $sale = $this->getSaleWithItems($id);
         if (!$sale || $sale['status'] === 'Cancelled') throw new \Exception("Facture invalide ou déjà annulée.");
 
-        $this->db->beginTransaction();
+        // Guard: Route sale from a closed tournee CANNOT be cancelled individually
+        if (!empty($sale['tournee_id']) && !$isCascadeFromTourneeCancellation) {
+            $tStatus = strtolower($sale['tournee_status'] ?? '');
+            if (in_array($tStatus, ['cloturee', 'clôturée', 'closed'])) {
+                $ref = !empty($sale['tournee_reference']) ? " (" . $sale['tournee_reference'] . ")" : "";
+                throw new \Exception("Impossible d'annuler cette facture {$id} : elle est issue de la tournée{$ref} qui a déjà été clôturée, soldée et archivée. Les régularisations ultérieures doivent être traitées au dépôt par retour de marchandise ou avoir.");
+            }
+        }
+
+        $alreadyInTx = $this->db->inTransaction();
+        if (!$alreadyInTx) {
+            $this->db->beginTransaction();
+        }
         try {
             $this->db->prepare("UPDATE sales SET status = 'Cancelled' WHERE id = ?")->execute([$id]);
 
-            $stmtReversalStock = $this->db->prepare("INSERT INTO stock_movements (movement_date, product_id, format_id, format_type, movement_type_id, source_type, source_id, quantity, stock_equivalent, unit_price, reference, user_id) VALUES (CURRENT_DATE, ?, ?, ?, 7, 'SaleCancellation', ?, ?, ?, ?, ?, ?)");
-            foreach ($sale['items'] as $item) {
-                $stmtReversalStock->execute([$item['product_id'], $item['format_id'] ?? 1, $item['format_type'] ?? 'casier', $id, $item['quantity'], $item['stock_equivalent'], $item['unit_price'], 'Annulation Vente ' . $id, $userId]);
+            $isTourneeSale = !empty($sale['tournee_id']);
+
+            // Only reinstate warehouse stock if this was NOT a route sale
+            // (For route sales, stock remains on the truck / managed by the tournee lifecycle)
+            if (!$isTourneeSale) {
+                $stmtReversalStock = $this->db->prepare("INSERT INTO stock_movements (movement_date, product_id, format_id, format_type, movement_type_id, source_type, source_id, quantity, stock_equivalent, unit_price, reference, user_id) VALUES (CURRENT_DATE, ?, ?, ?, 7, 'SaleCancellation', ?, ?, ?, ?, ?, ?)");
+                foreach ($sale['items'] as $item) {
+                    $stmtReversalStock->execute([$item['product_id'], $item['format_id'] ?? 1, $item['format_type'] ?? 'casier', $id, $item['quantity'], $item['stock_equivalent'], $item['unit_price'], 'Annulation Vente ' . $id, $userId]);
+                }
             }
 
-            if (floatval($sale['amount_paid'] ?? 0) > 0 && !empty($sale['cash_account_id'])) {
+            // Only refund from depot cash account if this was NOT a route sale
+            // (For route sales, cash is with the driver and reconciled during décharge)
+            if (!$isTourneeSale && floatval($sale['amount_paid'] ?? 0) > 0 && !empty($sale['cash_account_id'])) {
                 $this->db->prepare("INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id) VALUES (NOW(), 'Sale', ?, ?, ?, 0.00, ?, ?)")
                          ->execute([$id, 'Annulation & Remboursement Vente ' . $id, $sale['cash_account_id'], floatval($sale['amount_paid']), $userId]);
+            }
+
+            // Reverse any automatic excess payment (Avoir) linked to this sale
+            $stmtExcessPay = $this->db->prepare("SELECT * FROM client_payments WHERE reference = ?");
+            $stmtExcessPay->execute([$id]);
+            $excessPay = $stmtExcessPay->fetch();
+            if ($excessPay) {
+                $this->db->prepare("DELETE FROM client_payments WHERE id = ?")->execute([$excessPay['id']]);
+                if (!empty($excessPay['cash_account_id']) && floatval($excessPay['amount']) > 0) {
+                    $this->db->prepare("INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id) VALUES (NOW(), 'ClientPayment', ?, ?, ?, 0.00, ?, ?)")
+                             ->execute([$excessPay['id'], 'Annulation & Remboursement Avoir Trop-perçu Vente ' . $id, $excessPay['cash_account_id'], floatval($excessPay['amount']), $userId]);
+                }
             }
 
             $stmtReduceEmpty = $this->db->prepare("UPDATE emballage_stock SET empty_crates = GREATEST(0, empty_crates - ?), loose_bottles = GREATEST(0, loose_bottles - ?) WHERE packaging_type_id = ?");
@@ -789,6 +888,7 @@ class VentesModel {
                     $factor = max(1, intval($item['factor'] ?: 12));
                     $missingBottles = max(0, intval($item['bottles_out']) - (intval($item['crates_returned']) * $factor + intval($item['bottles_returned'])));
 
+                    // Relief client packaging debt in both counter and tournee sales
                     if ($missingBottles > 0) {
                         $stmtFetchDebt->execute([$sale['client_id'], $pkgTypeId]);
                         if ($curDebt = $stmtFetchDebt->fetch()) {
@@ -796,30 +896,42 @@ class VentesModel {
                             $stmtSetDebt->execute([floor($newTotalBtls / $factor), $newTotalBtls % $factor, $sale['client_id'], $pkgTypeId]);
                         }
                     }
-                    $cratesRet = intval($item['crates_returned'] ?? 0);
-                    $bottlesRet = intval($item['bottles_returned'] ?? 0);
 
-                    if ($cratesRet > 0 || $bottlesRet > 0) {
-                        $stmtReduceEmpty->execute([$cratesRet, $bottlesRet, $pkgTypeId]);
-                        $this->db->prepare("
-                            INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, client_id, crates_in, crates_out, bottles_in, bottles_out, notes, created_by) 
-                            VALUES (?, 'Sale_Cancellation', ?, ?, 0, ?, 0, ?, ?, ?)
-                        ")->execute([
-                            $pkgTypeId,
-                            $id,
-                            $sale['client_id'],
-                            $cratesRet,
-                            $bottlesRet,
-                            "Annulation Vente $id : restitution des vides déposés",
-                            $userId
-                        ]);
+                    // Empties returned: only reduce depot emballage stock if NOT a route sale
+                    // (For route sales, empties returned stay on the truck until evening décharge)
+                    if (!$isTourneeSale) {
+                        $cratesRet = intval($item['crates_returned'] ?? 0);
+                        $bottlesRet = intval($item['bottles_returned'] ?? 0);
+
+                        if ($cratesRet > 0 || $bottlesRet > 0) {
+                            $stmtReduceEmpty->execute([$cratesRet, $bottlesRet, $pkgTypeId]);
+                            $this->db->prepare("
+                                INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, client_id, crates_in, crates_out, bottles_in, bottles_out, notes, created_by) 
+                                VALUES (?, 'Sale_Cancellation', ?, ?, 0, ?, 0, ?, ?, ?)
+                            ")->execute([
+                                $pkgTypeId,
+                                $id,
+                                $sale['client_id'],
+                                $cratesRet,
+                                $bottlesRet,
+                                "Annulation Vente $id : restitution des vides déposés",
+                                $userId
+                            ]);
+                        }
                     }
                 }
             }
-            $this->db->commit();
+
+            \App\Core\Helper::logAudit('CANCEL', 'Ventes', $id, "Annulation de la facture $id" . (!empty($reason) ? " ($reason)" : ""));
+
+            if (!$alreadyInTx) {
+                $this->db->commit();
+            }
             return true;
         } catch (\Throwable $e) {
-            $this->db->rollBack();
+            if (!$alreadyInTx) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }

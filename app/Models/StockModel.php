@@ -20,6 +20,7 @@ class StockModel {
                     p.slug,
                     p.category_id,
                     p.format_id,
+                    p.packaging_type_id,
                     p.purchase_price,
                     p.price_casier,
                     p.price_demi,
@@ -28,6 +29,9 @@ class StockModel {
                     p.factor,
                     c.name as category_name,
                     f.name as format_name,
+                    pt.name as packaging_name,
+                    pt.company as packaging_company,
+                    pt.bottles_per_crate,
                     COALESCE(SUM(CASE 
                         WHEN mt.direction = 'IN' THEN m.stock_equivalent 
                         WHEN mt.direction = 'OUT' THEN -m.stock_equivalent 
@@ -36,17 +40,21 @@ class StockModel {
                 FROM products p
                 LEFT JOIN categories c ON p.category_id = c.id
                 LEFT JOIN formats f ON p.format_id = f.id
+                LEFT JOIN packaging_types pt ON p.packaging_type_id = pt.id
                 LEFT JOIN stock_movements m ON p.id = m.product_id
                 LEFT JOIN movement_types mt ON m.movement_type_id = mt.id
-                GROUP BY p.id, p.name, p.short_code, p.slug, p.category_id, p.format_id, p.purchase_price, p.price_casier, p.price_demi, p.price_unite, p.alert_stock, p.factor, c.name, f.name
+                GROUP BY p.id, p.name, p.short_code, p.slug, p.category_id, p.format_id, p.packaging_type_id, p.purchase_price, p.price_casier, p.price_demi, p.price_unite, p.alert_stock, p.factor, c.name, f.name, pt.name, pt.company, pt.bottles_per_crate
             ) stock_sub
             WHERE 1=1
         ";
         $params = [];
 
         if (!empty($filters['search'])) {
-            $sql .= " AND (name LIKE ? OR category_name LIKE ? OR format_name LIKE ?)";
+            $sql .= " AND (name LIKE ? OR short_code LIKE ? OR category_name LIKE ? OR format_name LIKE ? OR packaging_name LIKE ? OR packaging_company LIKE ?)";
             $term = '%' . trim($filters['search']) . '%';
+            $params[] = $term;
+            $params[] = $term;
+            $params[] = $term;
             $params[] = $term;
             $params[] = $term;
             $params[] = $term;
@@ -60,6 +68,11 @@ class StockModel {
         if (!empty($filters['format_id'])) {
             $sql .= " AND format_id = ?";
             $params[] = intval($filters['format_id']);
+        }
+
+        if (!empty($filters['packaging_type_id'])) {
+            $sql .= " AND packaging_type_id = ?";
+            $params[] = intval($filters['packaging_type_id']);
         }
 
         if (!empty($filters['status'])) {
@@ -89,13 +102,18 @@ class StockModel {
         return $this->db->query("SELECT * FROM formats ORDER BY name ASC")->fetchAll();
     }
 
+    public function getPackagingTypes() {
+        return $this->db->query("SELECT * FROM packaging_types ORDER BY company ASC, name ASC")->fetchAll();
+    }
+
     public function getMovements($limit = 100, $filters = []) {
         $where = [];
         $params = [];
 
         if (!empty($filters['search'])) {
-            $where[] = "(p.name LIKE ? OR m.reference LIKE ? OR m.source_id LIKE ? OR c.name LIKE ?)";
+            $where[] = "(p.name LIKE ? OR m.reference LIKE ? OR m.source_id LIKE ? OR c.name LIKE ? OR t_tour.reference LIKE ?)";
             $term = '%' . trim($filters['search']) . '%';
+            $params[] = $term;
             $params[] = $term;
             $params[] = $term;
             $params[] = $term;
@@ -130,6 +148,7 @@ class StockModel {
                 t.name as movement_type,
                 t.direction,
                 u.username,
+                t_tour.reference as tournee_reference,
                 COALESCE((
                     SELECT COUNT(*) 
                     FROM stock_movements c 
@@ -141,6 +160,7 @@ class StockModel {
             LEFT JOIN formats f ON m.format_id = f.id
             LEFT JOIN movement_types t ON m.movement_type_id = t.id
             LEFT JOIN users u ON m.user_id = u.id
+            LEFT JOIN tournees t_tour ON (m.source_type LIKE 'Tournee%' AND m.source_id = CAST(t_tour.id AS CHAR))
             {$whereSql}
             ORDER BY m.movement_date DESC, m.id DESC
             LIMIT " . intval($limit);
@@ -164,14 +184,20 @@ class StockModel {
             throw new \Exception("Mouvement de stock #{$id} introuvable.");
         }
 
-        if ($orig['source_type'] === 'Sale') {
-            throw new \Exception("Pour annuler un mouvement issu d'une vente, veuillez annuler directement la facture de vente dans le module Ventes.");
-        }
-        if ($orig['source_type'] === 'Purchase') {
-            throw new \Exception("Pour annuler un mouvement issu d'un achat, veuillez annuler directement le bon d'achat dans le module Achats.");
-        }
-        if ($orig['source_type'] === 'SaleCancellation' || $orig['source_type'] === 'PurchaseCancellation' || $orig['source_type'] === 'AdjustmentCancellation') {
-            throw new \Exception("Une contre-passation d'annulation ne peut pas être annulée.");
+        if ($orig['source_type'] !== 'Adjustment') {
+            if ($orig['source_type'] === 'Sale' || $orig['source_type'] === 'SaleCancellation') {
+                throw new \Exception("Ce mouvement est issu d'une vente. Pour l'annuler, veuillez annuler directement la facture de vente dans le module Ventes.");
+            }
+            if ($orig['source_type'] === 'Purchase' || $orig['source_type'] === 'PurchaseCancellation') {
+                throw new \Exception("Ce mouvement est issu d'un achat. Pour l'annuler, veuillez annuler directement le bon d'achat dans le module Achats.");
+            }
+            if (in_array($orig['source_type'], ['Tournee', 'TourneeReturn', 'TourneeCancellation'])) {
+                throw new \Exception("Ce mouvement est issu d'une tournée de livraison. Il ne peut pas être annulé directement dans le grand livre de stock.");
+            }
+            if ($orig['source_type'] === 'AdjustmentCancellation') {
+                throw new \Exception("Une contre-passation d'annulation ne peut pas être annulée.");
+            }
+            throw new \Exception("Seuls les ajustements manuels ou casses (Adjustment) peuvent être directement annulés depuis le grand livre des stocks.");
         }
 
         // Check if already cancelled

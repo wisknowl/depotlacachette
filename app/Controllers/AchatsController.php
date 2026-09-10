@@ -134,12 +134,20 @@ class AchatsController extends Controller {
                 $items = [];
                 if (!empty($_POST['items']) && is_array($_POST['items'])) {
                     foreach ($_POST['items'] as $it) {
-                        if (!empty($it['product_id']) && floatval($it['quantity'] ?? 0) > 0) {
+                        $pId = intval($it['product_id'] ?? 0);
+                        $qty = floatval($it['quantity'] ?? 0);
+                        $hasDemi = !empty($it['has_demi']) ? 1 : 0;
+                        if ($pId > 0 && ($qty > 0 || $hasDemi)) {
+                            $unitPrice = floatval($it['unit_price'] ?? 0);
+                            $demiUnitPrice = floatval($it['demi_unit_price'] ?? ($unitPrice / 2));
+                            $formatType = in_array($it['format_type'] ?? '', ['casier', 'demi']) ? $it['format_type'] : (($qty == 0 && $hasDemi) ? 'demi' : 'casier');
                             $items[] = [
-                                'product_id' => intval($it['product_id']),
-                                'format_type' => in_array($it['format_type'] ?? '', ['casier', 'demi']) ? $it['format_type'] : 'casier',
-                                'quantity' => floatval($it['quantity']),
-                                'unit_price' => floatval($it['unit_price'] ?? 0),
+                                'product_id' => $pId,
+                                'format_type' => $formatType,
+                                'has_demi' => $hasDemi,
+                                'quantity' => $qty,
+                                'unit_price' => $unitPrice,
+                                'demi_unit_price' => $demiUnitPrice,
                                 'empties_returned' => isset($it['empties_returned']) ? floatval($it['empties_returned']) : 0,
                                 'emballage_cost' => isset($it['emballage_cost']) ? floatval($it['emballage_cost']) : (isset($it['cout_emballage']) ? floatval($it['cout_emballage']) : 0),
                                 'packaging_mode' => in_array($it['packaging_mode'] ?? '', ['charge', 'debt']) ? $it['packaging_mode'] : 'charge',
@@ -148,11 +156,17 @@ class AchatsController extends Controller {
                         }
                     }
                 } elseif (!empty($_POST['product_id'])) {
+                    $qty = floatval($_POST['quantity'] ?? 1);
+                    $hasDemi = !empty($_POST['has_demi']) ? 1 : 0;
+                    $unitPrice = floatval($_POST['unit_price'] ?? 0);
+                    $demiUnitPrice = floatval($_POST['demi_unit_price'] ?? ($unitPrice / 2));
                     $items[] = [
                         'product_id' => intval($_POST['product_id']),
-                        'format_type' => in_array($_POST['format_type'] ?? '', ['casier', 'demi']) ? $_POST['format_type'] : 'casier',
-                        'quantity' => floatval($_POST['quantity'] ?? 1),
-                        'unit_price' => floatval($_POST['unit_price'] ?? 0),
+                        'format_type' => in_array($_POST['format_type'] ?? '', ['casier', 'demi']) ? $_POST['format_type'] : (($qty == 0 && $hasDemi) ? 'demi' : 'casier'),
+                        'has_demi' => $hasDemi,
+                        'quantity' => $qty,
+                        'unit_price' => $unitPrice,
+                        'demi_unit_price' => $demiUnitPrice,
                         'empties_returned' => isset($_POST['empties_returned']) ? floatval($_POST['empties_returned']) : 0,
                         'emballage_cost' => isset($_POST['emballage_cost']) ? floatval($_POST['emballage_cost']) : (isset($_POST['cout_emballage']) ? floatval($_POST['cout_emballage']) : 0),
                         'packaging_mode' => in_array($_POST['packaging_mode'] ?? '', ['charge', 'debt']) ? $_POST['packaging_mode'] : 'charge',

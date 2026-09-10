@@ -225,9 +225,27 @@
                                 </td>
                                 <?php endif; ?>
                                 <td>
-                                    <span style="font-size: 0.82rem; font-weight: 700; color: #1E293B;">
+                                    <span style="font-size: 0.84rem; font-weight: 700; color: #1E293B; display: block;">
                                         <?= htmlspecialchars($cd['packaging_name']) ?>
                                     </span>
+                                    <?php if (!empty($cd['source_invoices'])): ?>
+                                        <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 3px;">
+                                            <?php foreach ($cd['source_invoices'] as $inv): ?>
+                                                <a href="<?= BASE_URL ?>/ventes/invoice/<?= htmlspecialchars($inv['sale_id']) ?>" 
+                                                   target="_blank" 
+                                                   title="Facture <?= htmlspecialchars($inv['sale_id']) ?> du <?= htmlspecialchars($inv['sale_date']) ?> : <?= $inv['crates_due'] ?> casier(s) / <?= $inv['bottles_due'] ?> btl non rendus initialement (<?= htmlspecialchars($inv['products']) ?>)"
+                                                   style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; border-radius: 4px; font-size: 0.72rem; font-weight: 700; text-decoration: none; width: fit-content;">
+                                                    <i class='bx bx-receipt'></i> Facture <?= htmlspecialchars($inv['sale_id']) ?>
+                                                    <span style="color: #64748B; font-weight: 600; font-size: 0.68rem;">(<?= htmlspecialchars($inv['sale_date']) ?>)</span>
+                                                    <span style="color: #DC2626; font-size: 0.68rem; font-weight: 800;">[+<?= $inv['crates_due'] ?> c.]</span>
+                                                </a>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <small style="color: #94A3B8; font-size: 0.72rem; display: block; margin-top: 3px;">
+                                            <i class='bx bx-history'></i> Dette antérieure / reprise
+                                        </small>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if (!empty($cd['product_sigles'])): ?>
@@ -261,7 +279,17 @@
                                     <?php endif; ?>
                                 </td>
                                 <td style="text-align: center;">
-                                    <button type="button" class="btn btn-primary" onclick="quickRestitute(<?= $cd['client_id'] ?>, <?= $cd['packaging_type_id'] ?>, <?= $cd['crates_due'] ?>, <?= $cd['loose_bottles_due'] ?>, '<?= htmlspecialchars(addslashes($clientGroup['client_name'])) ?>', '<?= htmlspecialchars(addslashes($cd['packaging_name'])) ?>')" style="padding: 4px 10px; font-size: 0.78rem; background: #16A34A; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;" title="Enregistrer le retour de ces emballages">
+                                    <?php 
+                                    $invSummary = '';
+                                    if (!empty($cd['source_invoices'])) {
+                                        $invParts = [];
+                                        foreach ($cd['source_invoices'] as $inv) {
+                                            $invParts[] = $inv['sale_id'] . ' (' . $inv['sale_date'] . ')';
+                                        }
+                                        $invSummary = implode(', ', $invParts);
+                                    }
+                                    ?>
+                                    <button type="button" class="btn btn-primary" onclick="quickRestitute(<?= $cd['client_id'] ?>, <?= $cd['packaging_type_id'] ?>, <?= $cd['crates_due'] ?>, <?= $cd['loose_bottles_due'] ?>, '<?= htmlspecialchars(addslashes($clientGroup['client_name'])) ?>', '<?= htmlspecialchars(addslashes($cd['packaging_name'])) ?>', '<?= htmlspecialchars(addslashes($invSummary)) ?>')" style="padding: 4px 10px; font-size: 0.78rem; background: #16A34A; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;" title="Enregistrer le retour de ces emballages">
                                         <i class='bx bx-check'></i> Rendre
                                     </button>
                                 </td>
@@ -340,6 +368,7 @@
                 <div id="modal_debt_info" style="display: none; background: #EFF6FF; border: 1px solid #BFDBFE; border-left: 4px solid #0284C7; padding: 10px 14px; border-radius: 6px; margin-bottom: 15px; font-size: 0.88rem; color: #1E40AF;">
                     <div><strong>Client :</strong> <span id="modal_info_client"></span></div>
                     <div style="margin-top: 2px;"><strong>Modèle :</strong> <span id="modal_info_model"></span></div>
+                    <div id="modal_info_invoices_row" style="display: none; margin-top: 3px;"><strong>Facture(s) Source(s) :</strong> <span id="modal_info_invoices" style="font-weight: 700; color: #1D4ED8;"></span></div>
                     <div style="margin-top: 4px; color: #D97706; font-weight: 700;">
                         ⚠️ Dette Actuelle : <span id="modal_info_debt"></span>
                     </div>
@@ -399,7 +428,7 @@ function openRestitutionModal() {
 function closeRestitutionModal() {
     document.getElementById('modal_restitution').style.display = 'none';
 }
-function quickRestitute(clientId, pkgId, crates, bottles, clientName, modelName) {
+function quickRestitute(clientId, pkgId, crates, bottles, clientName, modelName, invoicesInfo) {
     document.getElementById('modal_client_id').value = clientId;
     document.getElementById('modal_packaging_type_id').value = pkgId;
     document.getElementById('modal_crates_returned').value = crates;
@@ -412,6 +441,17 @@ function quickRestitute(clientId, pkgId, crates, bottles, clientName, modelName)
         var debtText = crates + ' casier(s)';
         if (bottles > 0) debtText += ' + ' + bottles + ' btl(s) vrac';
         document.getElementById('modal_info_debt').innerText = debtText;
+
+        var invRow = document.getElementById('modal_info_invoices_row');
+        if (invRow) {
+            if (invoicesInfo) {
+                document.getElementById('modal_info_invoices').innerText = invoicesInfo;
+                invRow.style.display = 'block';
+            } else {
+                invRow.style.display = 'none';
+            }
+        }
+
         infoBanner.style.display = 'block';
     } else if (infoBanner) {
         infoBanner.style.display = 'none';

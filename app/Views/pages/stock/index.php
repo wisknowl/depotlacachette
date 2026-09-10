@@ -249,6 +249,15 @@
                                 <a href="<?= BASE_URL ?>/achats/order/<?= htmlspecialchars($m['source_id']) ?>" style="font-weight: 700; text-decoration: none; color: var(--c-navy);">
                                     <i class='bx bx-file-blank'></i> <?= htmlspecialchars($m['source_id']) ?>
                                 </a>
+                            <?php elseif ((str_starts_with($m['source_type'], 'Tournee') || in_array($m['source_type'], ['Tournee', 'TourneeReturn', 'TourneeCancellation', 'TourneeReturnReversal'])) && !empty($m['source_id'])): ?>
+                                <?php 
+                                    $tourneeRef = !empty($m['tournee_reference']) 
+                                        ? $m['tournee_reference'] 
+                                        : (!empty($m['reference']) && str_starts_with($m['reference'], 'TR') ? $m['reference'] : 'TR' . str_pad($m['source_id'], 5, '0', STR_PAD_LEFT));
+                                ?>
+                                <a href="<?= BASE_URL ?>/tournees/details/<?= htmlspecialchars($m['source_id']) ?>" style="font-weight: 700; text-decoration: none; color: #059669;" title="Voir les détails de la tournée <?= htmlspecialchars($tourneeRef) ?>">
+                                    <i class='bx bx-trip'></i> <?= htmlspecialchars($tourneeRef) ?>
+                                </a>
                             <?php else: ?>
                                 <span><?= htmlspecialchars($m['reference'] ?: ($m['source_id'] ?: '-')) ?></span>
                             <?php endif; ?>
@@ -264,14 +273,29 @@
                                     <i class='bx bx-undo'></i> Contre-passation
                                 </span>
                             <?php elseif ($m['source_type'] === 'Sale' || $m['source_type'] === 'SaleCancellation'): ?>
-                                <span style="font-size: 0.75rem; color: #94A3B8;">Géré via Ventes</span>
+                                <span style="font-size: 0.75rem; color: #94A3B8; font-weight: 600;">Géré via Ventes</span>
                             <?php elseif ($m['source_type'] === 'Purchase' || $m['source_type'] === 'PurchaseCancellation'): ?>
-                                <span style="font-size: 0.75rem; color: #94A3B8;">Géré via Achats</span>
-                            <?php elseif (\App\Core\Helper::isAdmin()): ?>
+                                <span style="font-size: 0.75rem; color: #94A3B8; font-weight: 600;">Géré via Achats</span>
+                            <?php elseif (str_starts_with($m['source_type'], 'Tournee') || in_array($m['source_type'], ['Tournee', 'TourneeReturn', 'TourneeCancellation', 'TourneeReturnReversal'])): ?>
+                                <?php 
+                                    $tourneeRef = !empty($m['tournee_reference']) 
+                                        ? $m['tournee_reference'] 
+                                        : (!empty($m['reference']) && str_starts_with($m['reference'], 'TR') ? $m['reference'] : 'TR' . str_pad($m['source_id'], 5, '0', STR_PAD_LEFT));
+                                ?>
+                                <?php if (!empty($m['source_id'])): ?>
+                                    <a href="<?= BASE_URL ?>/tournees/details/<?= htmlspecialchars($m['source_id']) ?>" style="font-size: 0.75rem; color: #059669; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 2px;" title="Géré via la tournée <?= htmlspecialchars($tourneeRef) ?>">
+                                        <i class='bx bx-trip'></i> Tournée <?= htmlspecialchars($tourneeRef) ?>
+                                    </a>
+                                <?php else: ?>
+                                    <span style="font-size: 0.75rem; color: #059669; font-weight: 600;">Géré via Tournée</span>
+                                <?php endif; ?>
+                            <?php elseif ($m['source_type'] === 'InitialStock' || empty($m['source_type'])): ?>
+                                <span style="font-size: 0.75rem; color: #94A3B8; font-weight: 600;">Stock Initial</span>
+                            <?php elseif ($m['source_type'] === 'Adjustment' && \App\Core\Helper::isAdmin()): ?>
                                 <a href="<?= BASE_URL ?>/stock/cancel/<?= $m['id'] ?>" 
                                    class="btn btn-primary" 
                                    style="padding: 3px 8px; font-size: 0.78rem; background-color: var(--c-danger); border-radius: 6px;" 
-                                   onclick="return confirm('Annuler ce mouvement de stock #<?= $m['id'] ?> (<?= htmlspecialchars(addslashes($m['product_name'])) ?> : <?= $m['quantity'] ?> <?= htmlspecialchars(addslashes($pkgLabel)) ?>) ?\n\nUne contre-passation inverse sera créée pour rééquilibrer le stock et le P&L.')" 
+                                   onclick="return confirm('Annuler ce mouvement d\'ajustement de stock #<?= $m['id'] ?> (<?= htmlspecialchars(addslashes($m['product_name'])) ?> : <?= $m['quantity'] ?> <?= htmlspecialchars(addslashes($pkgLabel)) ?>) ?\n\nUne contre-passation inverse sera créée pour rééquilibrer le stock et le P&L.')" 
                                    title="Annuler ce mouvement d'ajustement / casse">
                                     <i class='bx bx-x-circle'></i> Annuler
                                 </a>

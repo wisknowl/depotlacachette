@@ -163,12 +163,16 @@ class VentesController extends Controller {
                 $items = [];
                 if (!empty($_POST['items']) && is_array($_POST['items'])) {
                     foreach ($_POST['items'] as $it) {
-                        if (!empty($it['product_id']) && floatval($it['quantity'] ?? 0) > 0) {
+                        $qty = floatval($it['quantity'] ?? 0);
+                        $hasDemi = !empty($it['has_demi']) ? 1 : 0;
+                        if (!empty($it['product_id']) && ($qty > 0 || $hasDemi)) {
                             $items[] = [
                                 'product_id' => intval($it['product_id']),
-                                'format_type' => in_array($it['format_type'] ?? '', ['casier', 'demi']) ? $it['format_type'] : 'casier',
-                                'quantity' => floatval($it['quantity']),
+                                'format_type' => in_array($it['format_type'] ?? '', ['casier', 'demi', 'mixte']) ? $it['format_type'] : 'casier',
+                                'quantity' => $qty,
+                                'has_demi' => $hasDemi,
                                 'unit_price' => floatval($it['unit_price'] ?? 0),
+                                'demi_unit_price' => floatval($it['demi_unit_price'] ?? 0),
                                 'crates_returned' => isset($it['crates_returned']) ? intval($it['crates_returned']) : 0,
                                 'bottles_returned' => isset($it['bottles_returned']) ? intval($it['bottles_returned']) : 0,
                                 'update_catalog_price' => !empty($it['update_catalog_price'])
@@ -177,11 +181,15 @@ class VentesController extends Controller {
                     }
                 } elseif (!empty($_POST['product_id'])) {
                     // Fallback for single line
+                    $qty = floatval($_POST['quantity'] ?? 1);
+                    $hasDemi = !empty($_POST['has_demi']) ? 1 : 0;
                     $items[] = [
                         'product_id' => intval($_POST['product_id']),
-                        'format_type' => in_array($_POST['format_type'] ?? '', ['casier', 'demi']) ? $_POST['format_type'] : 'casier',
-                        'quantity' => floatval($_POST['quantity'] ?? 1),
+                        'format_type' => in_array($_POST['format_type'] ?? '', ['casier', 'demi', 'mixte']) ? $_POST['format_type'] : 'casier',
+                        'quantity' => $qty,
+                        'has_demi' => $hasDemi,
                         'unit_price' => floatval($_POST['unit_price'] ?? 0),
+                        'demi_unit_price' => floatval($_POST['demi_unit_price'] ?? 0),
                         'crates_returned' => isset($_POST['crates_returned']) ? intval($_POST['crates_returned']) : 0,
                         'bottles_returned' => isset($_POST['bottles_returned']) ? intval($_POST['bottles_returned']) : 0,
                         'update_catalog_price' => !empty($_POST['update_catalog_price'])

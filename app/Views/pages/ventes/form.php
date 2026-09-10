@@ -164,18 +164,18 @@
                 <table class="table" id="items_table" style="margin-bottom: 0;">
                     <thead>
                         <tr>
-                            <th style="min-width: 220px;">Produit / Boisson</th>
-                            <th style="min-width: 105px;">Emballage</th>
-                            <th style="min-width: 120px;">Format</th>
-                            <th style="min-width: 85px; text-align: center;">Stock</th>
-                            <th style="min-width: 115px; text-align: right;">Prix Unit (FCFA)</th>
-                            <th style="min-width: 110px; text-align: center;">Quantité</th>
-                            <th style="min-width: 110px; text-align: center;" title="Casiers vides rapportés par le client (Échange 1 pour 1 par défaut)">Casiers Rendus</th>
-                            <th style="min-width: 110px; text-align: center;" title="Bouteilles individuelles en vrac rendues par le client">Btl Vrac Rendues</th>
+                            <th style="min-width: 210px;">Produit / Boisson</th>
+                            <th style="min-width: 95px;">Emballage</th>
+                            <th style="min-width: 80px; text-align: center;">Stock Dispo</th>
+                            <th style="min-width: 105px; text-align: right;">Prix Casier (FCFA)</th>
+                            <th style="min-width: 90px; text-align: center;" title="Nombre de casiers entiers">Casiers Entiers</th>
+                            <th style="min-width: 135px; text-align: center;" title="Cocher pour ajouter 1 demi-casier">+ 1 Demi (0.5)</th>
+                            <th style="min-width: 90px; text-align: center;" title="Casiers vides rapportés par le client">Casiers Rendus</th>
+                            <th style="min-width: 90px; text-align: center;" title="Bouteilles individuelles en vrac rendues par le client">Btl Vrac Rendues</th>
                             <?php if (\App\Core\Helper::isAdmin()): ?>
-                                <th style="min-width: 80px; text-align: center;" title="Cocher pour mettre à jour le prix officiel du catalogue pour cette boisson">🏷️ MàJ Cat.</th>
+                                <th style="min-width: 75px; text-align: center;" title="Cocher pour mettre à jour le prix officiel du catalogue pour cette boisson">🏷️ MàJ Cat.</th>
                             <?php endif; ?>
-                            <th style="min-width: 130px; text-align: right;">Total Ligne (FCFA)</th>
+                            <th style="min-width: 120px; text-align: right;">Total Ligne (FCFA)</th>
                             <th style="min-width: 45px; text-align: center;">Action</th>
                         </tr>
                     </thead>
@@ -280,6 +280,18 @@
                     <i class='bx bx-info-circle' style="font-size: 1.2rem; vertical-align: middle;"></i>
                     <strong>Paiement Partiel :</strong> Le client verse <strong id="partial_paid_disp">0 FCFA</strong> au comptant. 
                     Le solde restant de <strong id="partial_due_disp" style="color: #DC2626; font-size: 1.05rem;">0 FCFA</strong> sera créé en <strong>Dette Client</strong>.
+                </div>
+
+                <!-- EXCESS PAYMENT / AVOIR NOTICE -->
+                <div id="excess_payment_notice" style="display: none; padding: 12px 16px; background: #ECFDF5; border-left: 4px solid #10B981; border-radius: 6px; font-size: 0.9rem; color: #065F46; margin-top: 12px;">
+                    <div style="display: flex; align-items: flex-start; gap: 8px;">
+                        <i class='bx bx-check-circle' style="font-size: 1.35rem; color: #059669; flex-shrink: 0; margin-top: 1px;"></i>
+                        <div>
+                            <strong>Paiement avec Surplus (Avoir Automatique) :</strong><br>
+                            Le client verse <strong id="excess_paid_disp">0 FCFA</strong> pour un net à payer de <strong id="excess_net_disp">0 FCFA</strong>.<br>
+                            Un surplus de <strong id="excess_surplus_disp" style="color: #059669; font-size: 1.05rem;">+0 FCFA</strong> sera <strong>automatiquement crédité en Avoir Client</strong> et encaissé en caisse.
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -435,6 +447,10 @@
                     <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem; color: #16A34A;">
                         <span>Encaissé (Caisse) :</span>
                         <strong id="vmodal_amount_paid">0 FCFA</strong>
+                    </div>
+                    <div id="vmodal_excess_row" style="display: none; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem; color: #059669; background: #ECFDF5; padding: 4px 8px; border-radius: 4px; border: 1px dashed #10B981; font-weight: 700;">
+                        <span><i class='bx bx-plus-circle'></i> Avoir Généré (Surplus) :</span>
+                        <strong id="vmodal_excess_amount">+0 FCFA</strong>
                     </div>
                     <div style="border-top: 1px solid #CBD5E1; padding-top: 6px; display: flex; justify-content: space-between; font-size: 0.95rem; color: #DC2626;">
                         <span>Reste Dû (Dette Client) :</span>
@@ -602,13 +618,7 @@ function addNewProductRow() {
                 -
             </span>
         </td>
-        <td>
-            <select name="items[${rowCounter}][format_type]" class="item-format form-control" onchange="onFormatChange(${rowCounter})">
-                <option value="casier">Entier (1.0)</option>
-                <option value="demi">Demi (0.5)</option>
-            </select>
-        </td>
-        <td>
+        <td style="text-align: center;">
             <span class="stock-badge" id="stock_badge_${rowCounter}" style="display: inline-block; padding: 4px 6px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: #E2E8F0; color: #475569;">
                 -
             </span>
@@ -616,14 +626,24 @@ function addNewProductRow() {
         <td>
             <input type="number" step="any" min="0" name="items[${rowCounter}][unit_price]" class="item-price form-control" required placeholder="0" oninput="calculateTotals()" style="min-width: 105px; font-weight: 700; text-align: right; padding: 6px 8px;">
         </td>
-        <td>
-            <input type="number" step="1" min="1" name="items[${rowCounter}][quantity]" class="item-qty form-control" required value="1" oninput="onQtyChange(${rowCounter})" style="min-width: 90px; font-weight: 800; font-size: 1.05rem; text-align: center; padding: 6px 8px; color: var(--c-navy-dark);">
+        <td style="text-align: center;">
+            <input type="number" step="1" min="0" name="items[${rowCounter}][quantity]" class="item-qty form-control" required value="1" oninput="onQtyChange(${rowCounter})" style="min-width: 85px; font-weight: 800; font-size: 1.05rem; text-align: center; padding: 6px 8px; color: var(--c-navy-dark);" title="Nombre de casiers entiers (mettre 0 si achat d'un demi seul)">
         </td>
-        <td>
-            <input type="number" step="1" min="0" name="items[${rowCounter}][crates_returned]" class="item-crates-ret form-control" value="1" placeholder="0" oninput="calculateTotals()" title="Casiers vides rapportés (1 pour 1 par défaut)" style="min-width: 90px; font-weight: 700; font-size: 1rem; text-align: center; padding: 6px 8px;">
+        <td style="text-align: center;">
+            <div id="demi_container_${rowCounter}" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+                <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.84rem; font-weight: 700; user-select: none; margin-bottom: 0;">
+                    <input type="checkbox" name="items[${rowCounter}][has_demi]" value="1" class="item-has-demi" id="has_demi_${rowCounter}" onchange="onDemiToggle(${rowCounter})">
+                    <span id="demi_label_${rowCounter}" style="color: #92400E;">+ 1 Demi</span>
+                </label>
+                <span id="demi_price_tag_${rowCounter}" style="font-size: 0.72rem; color: #64748B; font-weight: 600;">(0 F)</span>
+                <input type="hidden" name="items[${rowCounter}][demi_unit_price]" id="demi_price_${rowCounter}" value="0">
+            </div>
         </td>
-        <td>
-            <input type="number" step="1" min="0" name="items[${rowCounter}][bottles_returned]" class="item-bottles-ret form-control" value="0" placeholder="0" oninput="calculateTotals()" title="Bouteilles en vrac rapportées" style="min-width: 90px; font-weight: 700; font-size: 1rem; text-align: center; padding: 6px 8px;">
+        <td style="text-align: center;">
+            <input type="number" step="1" min="0" name="items[${rowCounter}][crates_returned]" class="item-crates-ret form-control" value="1" placeholder="0" oninput="calculateTotals()" title="Casiers vides rapportés (1 pour 1 par défaut)" style="min-width: 85px; font-weight: 700; font-size: 1rem; text-align: center; padding: 6px 8px;">
+        </td>
+        <td style="text-align: center;">
+            <input type="number" step="1" min="0" name="items[${rowCounter}][bottles_returned]" class="item-bottles-ret form-control" value="0" placeholder="0" oninput="calculateTotals()" title="Bouteilles en vrac rapportées" style="min-width: 85px; font-weight: 700; font-size: 1rem; text-align: center; padding: 6px 8px;">
         </td>
         ${adminCatCell}
         <td style="text-align: right; font-weight: 800; font-size: 1.05rem; color: var(--c-navy-dark);" id="row_total_${rowCounter}">
@@ -660,7 +680,6 @@ function removeRow(id) {
     const row = document.getElementById(`row_${id}`);
     if (row) {
         row.remove();
-        refreshFormatOptionsAcrossRows();
         calculateTotals();
     }
 }
@@ -823,8 +842,12 @@ async function submitQuickAvoir() {
 function onProductChange(id) {
     const row = document.getElementById(`row_${id}`);
     const prodSelect = row.querySelector('.item-product');
-    const formatSelect = row.querySelector('.item-format');
     const priceInput = row.querySelector('.item-price');
+    const qtyInput = row.querySelector('.item-qty');
+    const hasDemiChk = document.getElementById(`has_demi_${id}`);
+    const demiPriceHidden = document.getElementById(`demi_price_${id}`);
+    const demiLabel = document.getElementById(`demi_label_${id}`);
+    const demiPriceTag = document.getElementById(`demi_price_tag_${id}`);
     const embBadge = document.getElementById(`item_emb_badge_${id}`);
     const stockBadge = document.getElementById(`stock_badge_${id}`);
     const cratesRetInput = row.querySelector('.item-crates-ret');
@@ -839,33 +862,31 @@ function onProductChange(id) {
         stockBadge.style.color = "#475569";
         embBadge.innerText = "-";
         priceInput.value = "";
+        if (hasDemiChk) hasDemiChk.checked = false;
+        if (demiPriceHidden) demiPriceHidden.value = 0;
+        if (demiLabel) demiLabel.innerText = "+ 1 Demi";
+        if (demiPriceTag) demiPriceTag.innerText = "(0 F)";
         cratesRetInput.value = 0;
         bottlesRetInput.value = 0;
-        refreshFormatOptionsAcrossRows();
         calculateTotals();
         return;
     }
 
-    // Check existing format rows for this product to prevent duplicate format usage
+    // Check if this product is already selected in another row to avoid duplicate rows
     const otherRows = Array.from(document.querySelectorAll("#items_tbody tr")).filter(r => r.id !== `row_${id}`);
-    const existingFormats = [];
+    let alreadySelected = false;
     otherRows.forEach(r => {
         const pSel = r.querySelector('.item-product');
-        const fSel = r.querySelector('.item-format');
         if (parseInt(pSel?.value) === prodId) {
-            existingFormats.push(fSel?.value || 'casier');
+            alreadySelected = true;
         }
     });
 
-    if (existingFormats.includes('casier') && existingFormats.includes('demi')) {
-        alert(`La boisson "${prod.name}" est déjà présente dans votre panier en format Entier et en format Demi.`);
+    if (alreadySelected) {
+        alert(`La boisson "${prod.name}" est déjà présente dans votre facture.\nPour cette boisson, vous pouvez saisir les casiers entiers et cocher "+ 1 Demi" directement sur la ligne déjà créée.`);
         prodSelect.value = "";
         onProductChange(id);
         return;
-    } else if (existingFormats.includes('casier')) {
-        formatSelect.value = 'demi';
-    } else if (existingFormats.includes('demi')) {
-        formatSelect.value = 'casier';
     }
 
     const stockUnit = isTourneeSale ? 'camion' : 'emb.';
@@ -884,116 +905,90 @@ function onProductChange(id) {
         embBadge.innerHTML = `<span style="color: #64748B;">⚪ Perdu</span>`;
     }
 
-    onFormatChange(id);
+    priceInput.value = prod.price_casier || 0;
+    const factor = prod.factor || 12;
+    const demiBottles = Math.round(factor / 2);
+    const demiPrice = prod.price_demi > 0 ? prod.price_demi : Math.round((prod.price_casier || 0) / 2);
+
+    if (demiPriceHidden) demiPriceHidden.value = demiPrice;
+    if (demiLabel) demiLabel.innerText = `+ 1 Demi (${demiBottles} btls)`;
+    if (demiPriceTag) demiPriceTag.innerText = `(+${new Intl.NumberFormat('fr-FR').format(demiPrice)} F)`;
+
+    if (hasDemiChk) hasDemiChk.checked = false;
+    if (parseFloat(qtyInput.value) <= 0) qtyInput.value = 1;
+
+    if (prod.is_returnable) {
+        cratesRetInput.disabled = false;
+        cratesRetInput.value = parseFloat(qtyInput.value) || 1;
+        bottlesRetInput.disabled = false;
+        bottlesRetInput.value = 0;
+    } else {
+        cratesRetInput.disabled = true;
+        cratesRetInput.value = 0;
+        bottlesRetInput.disabled = true;
+        bottlesRetInput.value = 0;
+    }
+
+    calculateTotals();
+}
+
+function onDemiToggle(id) {
+    const row = document.getElementById(`row_${id}`);
+    const prodSelect = row.querySelector('.item-product');
+    const qtyInput = row.querySelector('.item-qty');
+    const hasDemiChk = document.getElementById(`has_demi_${id}`);
+    const bottlesRetInput = row.querySelector('.item-bottles-ret');
+
+    const prodId = parseInt(prodSelect?.value) || 0;
+    const prod = availableProducts.find(p => p.id === prodId);
+    const isChecked = hasDemiChk?.checked || false;
+    const factor = prod ? (prod.factor || 12) : 12;
+    const demiBtls = Math.round(factor / 2);
+
+    if (isChecked) {
+        qtyInput.min = 0;
+        if (prod && prod.is_returnable) {
+            // If empty bottles returned wasn't touched or is 0, default to demi bottles
+            if (parseInt(bottlesRetInput.value || 0) === 0) {
+                bottlesRetInput.value = demiBtls;
+            }
+        }
+    } else {
+        qtyInput.min = 1;
+        if (parseFloat(qtyInput.value) <= 0) {
+            qtyInput.value = 1;
+        }
+        if (prod && prod.is_returnable) {
+            if (parseInt(bottlesRetInput.value || 0) === demiBtls) {
+                bottlesRetInput.value = 0;
+            }
+        }
+    }
+
+    calculateTotals();
 }
 
 function onQtyChange(id) {
     const row = document.getElementById(`row_${id}`);
     const prodSelect = row.querySelector('.item-product');
-    const formatSelect = row.querySelector('.item-format');
     const qtyInput = row.querySelector('.item-qty');
+    const hasDemiChk = document.getElementById(`has_demi_${id}`);
     const cratesRetInput = row.querySelector('.item-crates-ret');
-    const bottlesRetInput = row.querySelector('.item-bottles-ret');
 
-    const prodId = parseInt(prodSelect.value) || 0;
+    const prodId = parseInt(prodSelect?.value) || 0;
     const prod = availableProducts.find(p => p.id === prodId);
-    const format = formatSelect.value;
+    const isChecked = hasDemiChk?.checked || false;
 
-    if (format === 'demi') {
-        qtyInput.value = 1;
-    }
+    let qty = parseFloat(qtyInput.value);
+    if (isNaN(qty) || qty < 0) qty = 0;
+    if (!isChecked && qty < 1) qty = 1;
+    qtyInput.value = qty;
 
-    const qty = parseFloat(qtyInput.value) || 1;
-
-    if (prod && prod.is_returnable) {
-        const factor = prod.factor || 12;
-        if (format === 'casier' && !cratesRetInput.disabled) {
-            cratesRetInput.value = qty;
-        } else if (format === 'demi') {
-            bottlesRetInput.value = (factor / 2);
-        }
+    if (prod && prod.is_returnable && !cratesRetInput.disabled) {
+        cratesRetInput.value = qty;
     }
 
     calculateTotals();
-}
-
-function onFormatChange(id) {
-    const row = document.getElementById(`row_${id}`);
-    const prodSelect = row.querySelector('.item-product');
-    const formatSelect = row.querySelector('.item-format');
-    const priceInput = row.querySelector('.item-price');
-    const qtyInput = row.querySelector('.item-qty');
-    const cratesRetInput = row.querySelector('.item-crates-ret');
-    const bottlesRetInput = row.querySelector('.item-bottles-ret');
-
-    const prodId = parseInt(prodSelect.value) || 0;
-    const prod = availableProducts.find(p => p.id === prodId);
-    if (!prod) return;
-
-    const format = formatSelect.value;
-    const factor = prod.factor || 12;
-
-    if (format === "demi") {
-        qtyInput.value = 1;
-        qtyInput.readOnly = true;
-        qtyInput.style.backgroundColor = "#F1F5F9";
-        qtyInput.style.cursor = "not-allowed";
-        qtyInput.title = "En demi-casier, la quantité est strictement fixée à 1.";
-        
-        if (prod.price_demi > 0) priceInput.value = prod.price_demi;
-        cratesRetInput.value = 0;
-        cratesRetInput.disabled = true;
-        if (prod.is_returnable) {
-            bottlesRetInput.disabled = false;
-            bottlesRetInput.value = (factor / 2);
-        }
-    } else {
-        qtyInput.readOnly = false;
-        qtyInput.style.backgroundColor = "";
-        qtyInput.style.cursor = "";
-        qtyInput.title = "";
-        if (parseFloat(qtyInput.value) <= 0) qtyInput.value = 1;
-
-        priceInput.value = prod.price_casier;
-        if (prod.is_returnable) {
-            cratesRetInput.disabled = false;
-            cratesRetInput.value = parseFloat(qtyInput.value) || 1;
-            bottlesRetInput.value = 0;
-        }
-    }
-
-    refreshFormatOptionsAcrossRows();
-    calculateTotals();
-}
-
-function refreshFormatOptionsAcrossRows() {
-    const allRows = document.querySelectorAll("#items_tbody tr");
-    allRows.forEach(row => {
-        const prodSelect = row.querySelector('.item-product');
-        const formatSelect = row.querySelector('.item-format');
-        const prodId = parseInt(prodSelect?.value) || 0;
-        if (!prodId || !formatSelect) return;
-
-        const optCasier = formatSelect.querySelector("option[value='casier']");
-        const optDemi = formatSelect.querySelector("option[value='demi']");
-        if (!optCasier || !optDemi) return;
-
-        let hasOtherCasier = false;
-        let hasOtherDemi = false;
-
-        allRows.forEach(otherRow => {
-            if (otherRow === row) return;
-            const otherProd = parseInt(otherRow.querySelector('.item-product')?.value) || 0;
-            const otherFormat = otherRow.querySelector('.item-format')?.value;
-            if (otherProd === prodId) {
-                if (otherFormat === 'casier') hasOtherCasier = true;
-                if (otherFormat === 'demi') hasOtherDemi = true;
-            }
-        });
-
-        optCasier.disabled = hasOtherCasier;
-        optDemi.disabled = hasOtherDemi;
-    });
 }
 
 let isAmountPaidManuallySet = false;
@@ -1018,14 +1013,15 @@ function calculateTotals() {
     const rows = document.querySelectorAll("#items_tbody tr");
     rows.forEach(tr => {
         const prodSelect = tr.querySelector('.item-product');
-        const formatSelect = tr.querySelector('.item-format');
         const qtyInput = tr.querySelector('.item-qty');
+        const rowId = tr.id.replace('row_', '');
+        const hasDemiChk = document.getElementById(`has_demi_${rowId}`);
         const prodId = parseInt(prodSelect?.value) || 0;
         const qty = parseFloat(qtyInput?.value) || 0;
-        const format = formatSelect?.value || 'casier';
-        const equiv = (format === "demi") ? (qty * 0.5) : qty;
+        const hasDemi = (hasDemiChk && hasDemiChk.checked) ? 1 : 0;
+        const equiv = qty + (hasDemi ? 0.5 : 0.0);
 
-        if (prodId > 0 && qty > 0) {
+        if (prodId > 0 && equiv > 0) {
             requestedStockByProd[prodId] = (requestedStockByProd[prodId] || 0) + equiv;
         }
     });
@@ -1033,32 +1029,51 @@ function calculateTotals() {
     // 2. Validate rows against aggregated total and compute totals
     rows.forEach(tr => {
         const prodSelect = tr.querySelector('.item-product');
-        const formatSelect = tr.querySelector('.item-format');
         const priceInput = tr.querySelector('.item-price');
         const qtyInput = tr.querySelector('.item-qty');
         const rowId = tr.id.replace('row_', '');
+        const hasDemiChk = document.getElementById(`has_demi_${rowId}`);
+        const demiPriceHidden = document.getElementById(`demi_price_${rowId}`);
         const rowTotalDisplay = document.getElementById(`row_total_${rowId}`);
         const stockBadge = document.getElementById(`stock_badge_${rowId}`);
 
         const prodId = parseInt(prodSelect?.value) || 0;
         const prod = availableProducts.find(p => p.id === prodId);
         const qty = parseFloat(qtyInput?.value) || 0;
-        const price = parseFloat(priceInput?.value) || 0;
-        const format = formatSelect?.value || 'casier';
+        const hasDemi = (hasDemiChk && hasDemiChk.checked) ? 1 : 0;
+        const priceCasier = parseFloat(priceInput?.value) || 0;
 
-        const lineTotal = qty * price;
+        // Dynamic demi price calculation based on the entered casier price
+        let priceDemi = 0;
+        if (prod) {
+            if (priceCasier === prod.price_casier && prod.price_demi > 0) {
+                priceDemi = prod.price_demi;
+            } else {
+                priceDemi = Math.round(priceCasier / 2);
+            }
+            if (demiPriceHidden) demiPriceHidden.value = priceDemi;
+            const demiPriceTag = document.getElementById(`demi_price_tag_${rowId}`);
+            if (demiPriceTag) {
+                demiPriceTag.innerText = `(+${new Intl.NumberFormat('fr-FR').format(priceDemi)} F)`;
+            }
+        } else {
+            priceDemi = parseFloat(demiPriceHidden?.value) || 0;
+        }
+
+        const lineTotal = (qty * priceCasier) + (hasDemi ? priceDemi : 0.0);
         subTotal += lineTotal;
 
         if (rowTotalDisplay) {
             rowTotalDisplay.innerText = new Intl.NumberFormat('fr-FR').format(lineTotal) + " FCFA";
         }
 
-        if (prod && qty > 0) {
+        const equiv = qty + (hasDemi ? 0.5 : 0.0);
+
+        if (prod && equiv > 0) {
             validLines++;
-            const equiv = (format === "demi") ? (qty * 0.5) : qty;
             totalCasiersEquiv += equiv;
 
-            // Aggregated stock check guard
+            // Stock check guard
             const totalRequested = requestedStockByProd[prodId] || 0;
             const stockUnit = isTourneeSale ? 'camion' : 'emb.';
             if (totalRequested > prod.stock) {
@@ -1155,15 +1170,17 @@ function calculateTotals() {
         }
     }
 
-    // Handle Amount Paid & Partial Payment
+    // Handle Amount Paid & Partial Payment / Excess Avoir
     const isCredit = document.getElementById("settle_credit")?.checked || false;
     const amtPaidInput = document.getElementById("vente_amount_paid");
     const partialNotice = document.getElementById("partial_payment_notice");
+    const excessNotice = document.getElementById("excess_payment_notice");
 
     let amountPaid = netPayable;
     if (isCredit) {
         amountPaid = 0;
         if (partialNotice) partialNotice.style.display = "none";
+        if (excessNotice) excessNotice.style.display = "none";
     } else {
         if (!isAmountPaidManuallySet && amtPaidInput) {
             amtPaidInput.value = netPayable;
@@ -1173,14 +1190,28 @@ function calculateTotals() {
         }
 
         const remainingDebt = Math.max(0, netPayable - amountPaid);
-        if (remainingDebt > 0 && partialNotice) {
-            partialNotice.style.display = "block";
-            const paidDisp = document.getElementById("partial_paid_disp");
-            const dueDisp = document.getElementById("partial_due_disp");
+        const excessCash = Math.max(0, amountPaid - netPayable);
+
+        if (excessCash > 0 && excessNotice) {
+            excessNotice.style.display = "block";
+            if (partialNotice) partialNotice.style.display = "none";
+            const paidDisp = document.getElementById("excess_paid_disp");
+            const netDisp = document.getElementById("excess_net_disp");
+            const surplusDisp = document.getElementById("excess_surplus_disp");
             if (paidDisp) paidDisp.innerText = new Intl.NumberFormat('fr-FR').format(amountPaid) + " FCFA";
-            if (dueDisp) dueDisp.innerText = new Intl.NumberFormat('fr-FR').format(remainingDebt) + " FCFA";
-        } else if (partialNotice) {
-            partialNotice.style.display = "none";
+            if (netDisp) netDisp.innerText = new Intl.NumberFormat('fr-FR').format(netPayable) + " FCFA";
+            if (surplusDisp) surplusDisp.innerText = "+" + new Intl.NumberFormat('fr-FR').format(excessCash) + " FCFA";
+        } else {
+            if (excessNotice) excessNotice.style.display = "none";
+            if (remainingDebt > 0 && partialNotice) {
+                partialNotice.style.display = "block";
+                const paidDisp = document.getElementById("partial_paid_disp");
+                const dueDisp = document.getElementById("partial_due_disp");
+                if (paidDisp) paidDisp.innerText = new Intl.NumberFormat('fr-FR').format(amountPaid) + " FCFA";
+                if (dueDisp) dueDisp.innerText = new Intl.NumberFormat('fr-FR').format(remainingDebt) + " FCFA";
+            } else if (partialNotice) {
+                partialNotice.style.display = "none";
+            }
         }
     }
 
@@ -1288,8 +1319,9 @@ function getPackagingDebts() {
     const rows = document.querySelectorAll("#items_tbody tr");
     rows.forEach(tr => {
         const prodSelect = tr.querySelector('.item-product');
-        const formatSelect = tr.querySelector('.item-format');
         const qtyInput = tr.querySelector('.item-qty');
+        const rowId = tr.id.replace('row_', '');
+        const hasDemiChk = document.getElementById(`has_demi_${rowId}`);
         const cratesRetInput = tr.querySelector('.item-crates-ret');
         const bottlesRetInput = tr.querySelector('.item-bottles-ret');
 
@@ -1298,19 +1330,13 @@ function getPackagingDebts() {
         if (!prod || !prod.is_returnable) return;
 
         const qty = parseFloat(qtyInput?.value) || 0;
-        const format = formatSelect?.value || 'casier';
+        const hasDemi = (hasDemiChk && hasDemiChk.checked) ? 1 : 0;
         const factor = prod.factor || 12;
 
-        let cOut = 0, bOut = 0, cIn = 0, bIn = 0;
-        if (format === 'casier') {
-            cOut = qty;
-            bOut = qty * factor;
-            cIn = parseFloat(cratesRetInput?.value) || 0;
-            bIn = parseFloat(bottlesRetInput?.value) || 0;
-        } else {
-            bOut = qty * (factor / 2);
-            bIn = parseFloat(bottlesRetInput?.value) || 0;
-        }
+        const cOut = Math.floor(qty);
+        const bOut = (qty * factor) + (hasDemi ? Math.round(factor / 2) : 0);
+        const cIn = parseFloat(cratesRetInput?.value) || 0;
+        const bIn = parseFloat(bottlesRetInput?.value) || 0;
 
         totalCratesOut += cOut;
         totalCratesIn += cIn;
@@ -1403,6 +1429,16 @@ function openVenteConfirmModal() {
 
     document.getElementById("vmodal_total_amount").innerText = new Intl.NumberFormat('fr-FR').format(globalSaleTotal) + " FCFA";
     document.getElementById("vmodal_amount_paid").innerText = new Intl.NumberFormat('fr-FR').format(amountPaid) + " FCFA" + (!isCredit && cashSelect.selectedIndex >= 0 ? ` (${cashSelect.options[cashSelect.selectedIndex].text.split('(')[0].trim()})` : '');
+    
+    const excessRow = document.getElementById("vmodal_excess_row");
+    const excessCash = Math.max(0, amountPaid - globalSaleTotal);
+    if (excessCash > 0 && excessRow) {
+        excessRow.style.display = "flex";
+        document.getElementById("vmodal_excess_amount").innerText = "+" + new Intl.NumberFormat('fr-FR').format(excessCash) + " FCFA";
+    } else if (excessRow) {
+        excessRow.style.display = "none";
+    }
+
     document.getElementById("vmodal_amount_due").innerText = new Intl.NumberFormat('fr-FR').format(amountDue) + " FCFA";
 
     // Populate Items
@@ -1412,9 +1448,11 @@ function openVenteConfirmModal() {
     const rows = document.querySelectorAll("#items_tbody tr");
     rows.forEach(tr => {
         const prodSelect = tr.querySelector('.item-product');
-        const formatSelect = tr.querySelector('.item-format');
         const priceInput = tr.querySelector('.item-price');
         const qtyInput = tr.querySelector('.item-qty');
+        const rowId = tr.id.replace('row_', '');
+        const hasDemiChk = document.getElementById(`has_demi_${rowId}`);
+        const demiPriceHidden = document.getElementById(`demi_price_${rowId}`);
         const cratesRetInput = tr.querySelector('.item-crates-ret');
         const bottlesRetInput = tr.querySelector('.item-bottles-ret');
 
@@ -1423,40 +1461,48 @@ function openVenteConfirmModal() {
         if (!prod) return;
 
         const qty = parseFloat(qtyInput?.value) || 0;
+        const hasDemi = (hasDemiChk && hasDemiChk.checked) ? 1 : 0;
         const price = parseFloat(priceInput?.value) || 0;
-        const format = formatSelect?.value === 'demi' ? 'Demi (0.5)' : 'Entier (1.0)';
-        const lineTot = qty * price;
+        const demiPrice = parseFloat(demiPriceHidden?.value) || 0;
+        const lineTot = (qty * price) + (hasDemi ? demiPrice : 0);
+        const factor = prod.factor || 12;
+        const demiBtls = Math.round(factor / 2);
         const code = prod.short_code ? `[${prod.short_code}] ` : '';
+
+        let formatStr = '';
+        if (qty > 0 && hasDemi) {
+            formatStr = `${qty} casier(s) + 1 demi (${demiBtls} btls)`;
+        } else if (qty === 0 && hasDemi) {
+            formatStr = `1 demi (${demiBtls} btls)`;
+        } else {
+            formatStr = `${qty} casier(s)`;
+        }
 
         let retText = '<span style="color: #94A3B8;">Perdu</span>';
         if (prod.is_returnable) {
-            const factor = prod.factor || 12;
-            if (formatSelect?.value === 'casier') {
-                const cratesRet = parseFloat(cratesRetInput?.value) || 0;
-                const bottlesRet = parseFloat(bottlesRetInput?.value) || 0;
-                const missingBtls = Math.max(0, (qty * factor) - (cratesRet * factor + bottlesRet));
-                if (missingBtls === 0) {
-                    retText = `${cratesRet} rendu(s) 🟢`;
-                } else {
-                    const cDue = Math.floor(missingBtls / factor);
-                    const bDue = missingBtls % factor;
-                    let dueStr = '';
-                    if (cDue > 0) dueStr += `+${cDue} c.`;
-                    if (bDue > 0) dueStr += ` +${bDue} btl(s)`;
-                    retText = `${cratesRet} rendu(s) <span style="color: #DC2626; font-size: 0.78rem; font-weight: 700;">(${dueStr.trim()} dû)</span>`;
-                }
+            const cratesRet = parseFloat(cratesRetInput?.value) || 0;
+            const bottlesRet = parseFloat(bottlesRetInput?.value) || 0;
+            const totalOutBtls = (qty * factor) + (hasDemi ? demiBtls : 0);
+            const totalRetBtls = (cratesRet * factor) + bottlesRet;
+            const missingBtls = Math.max(0, totalOutBtls - totalRetBtls);
+
+            if (missingBtls === 0) {
+                retText = `${cratesRet} c. ${bottlesRet > 0 ? `+ ${bottlesRet} btl(s)` : ''} 🟢`;
             } else {
-                const btlsRet = parseFloat(bottlesRetInput?.value) || 0;
-                const missingBtls = Math.max(0, (qty * (factor / 2)) - btlsRet);
-                retText = `${btlsRet} btls rendues ${missingBtls > 0 ? `<span style="color: #DC2626; font-size: 0.78rem; font-weight: 700;">(+${missingBtls} btl due)</span>` : '🟢'}`;
+                const cDue = Math.floor(missingBtls / factor);
+                const bDue = missingBtls % factor;
+                let dueStr = '';
+                if (cDue > 0) dueStr += `+${cDue} c.`;
+                if (bDue > 0) dueStr += ` +${bDue} btl(s)`;
+                retText = `${cratesRet} c. ${bottlesRet > 0 ? `+ ${bottlesRet} btl` : ''} <span style="color: #DC2626; font-size: 0.78rem; font-weight: 700;">(${dueStr.trim()} dû)</span>`;
             }
         }
 
         const mtr = document.createElement("tr");
         mtr.innerHTML = `
             <td><strong>${code}${prod.name}</strong></td>
-            <td><span style="padding: 2px 6px; border-radius: 4px; background: #E2E8F0; font-size: 0.78rem;">${format}</span></td>
-            <td><strong>${qty}</strong></td>
+            <td><span style="padding: 2px 6px; border-radius: 4px; background: #E2E8F0; font-size: 0.78rem;">${formatStr}</span></td>
+            <td><strong>${(qty + (hasDemi ? 0.5 : 0)).toFixed(1)}</strong></td>
             <td>${new Intl.NumberFormat('fr-FR').format(price)} F</td>
             <td>${retText}</td>
             <td style="text-align: right; font-weight: 700;">${new Intl.NumberFormat('fr-FR').format(lineTot)} FCFA</td>

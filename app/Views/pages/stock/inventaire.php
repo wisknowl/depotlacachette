@@ -32,7 +32,22 @@
         </div>
         <div style="text-align: right; font-size: 0.85rem; color: #475569;">
             <p style="margin: 0;"><strong>Date d'Édition :</strong> <?= date('d/m/Y à H:i') ?></p>
-            <p style="margin: 2px 0 0 0;"><strong>Filtre Actif :</strong> <?= ($filterStatus === 'rupture') ? 'Articles en Rupture' : (($filterStatus === 'alert') ? 'Articles en Alerte Seuil' : (($filterStatus === 'instock') ? 'Articles Disponibles' : 'Inventaire Complet')) ?></p>
+            <p style="margin: 2px 0 0 0;">
+                <strong>Filtre Actif :</strong> 
+                <?= ($filterStatus === 'rupture') ? 'Articles en Rupture' : (($filterStatus === 'alert') ? 'Articles en Alerte Seuil' : (($filterStatus === 'instock') ? 'Articles Disponibles' : 'Inventaire Complet')) ?>
+                <?php if (!empty($filterPackagingTypeId)): ?>
+                    <?php 
+                        $chosenModel = '';
+                        foreach ($packagingTypes as $pt) {
+                            if ($pt['id'] == $filterPackagingTypeId) {
+                                $chosenModel = $pt['company'] . ' - ' . $pt['name'];
+                                break;
+                            }
+                        }
+                    ?>
+                    &bull; <strong>Modèle :</strong> <?= htmlspecialchars($chosenModel) ?>
+                <?php endif; ?>
+            </p>
             <p style="margin: 2px 0 0 0;"><strong>Édité par :</strong> <?= htmlspecialchars($_SESSION['user']['full_name'] ?? 'Administrateur') ?></p>
         </div>
     </div>
@@ -121,25 +136,25 @@
     <div style="display: flex; gap: 10px; margin-bottom: 15px; padding-bottom: 12px; border-bottom: 1px solid #F1F5F9; align-items: center; flex-wrap: wrap;">
         <span style="font-size: 0.82rem; font-weight: 700; color: #64748B; margin-right: 5px;">Filtrer par Statut :</span>
         
-        <a href="<?= BASE_URL ?>/stock/inventaire?status=all<?= !empty($filterSearch) ? '&search='.urlencode($filterSearch) : '' ?><?= !empty($filterCategoryId) ? '&category_id='.$filterCategoryId : '' ?><?= !empty($filterFormatId) ? '&format_id='.$formatId : '' ?>" 
+        <a href="<?= BASE_URL ?>/stock/inventaire?status=all<?= !empty($filterSearch) ? '&search='.urlencode($filterSearch) : '' ?><?= !empty($filterCategoryId) ? '&category_id='.$filterCategoryId : '' ?><?= !empty($filterFormatId) ? '&format_id='.$filterFormatId : '' ?><?= !empty($filterPackagingTypeId) ? '&packaging_type_id='.$filterPackagingTypeId : '' ?>" 
            class="btn <?= ($filterStatus === 'all' || empty($filterStatus)) ? 'btn-accent' : 'btn-primary' ?>" 
            style="padding: 5px 12px; font-size: 0.82rem; <?= ($filterStatus !== 'all' && !empty($filterStatus)) ? 'background: #F1F5F9; color: #334155;' : '' ?>">
             <i class='bx bx-list-ul'></i> Tous les Produits (<?= $countTotal ?>)
         </a>
 
-        <a href="<?= BASE_URL ?>/stock/inventaire?status=instock<?= !empty($filterSearch) ? '&search='.urlencode($filterSearch) : '' ?><?= !empty($filterCategoryId) ? '&category_id='.$filterCategoryId : '' ?><?= !empty($filterFormatId) ? '&format_id='.$formatId : '' ?>" 
+        <a href="<?= BASE_URL ?>/stock/inventaire?status=instock<?= !empty($filterSearch) ? '&search='.urlencode($filterSearch) : '' ?><?= !empty($filterCategoryId) ? '&category_id='.$filterCategoryId : '' ?><?= !empty($filterFormatId) ? '&format_id='.$filterFormatId : '' ?><?= !empty($filterPackagingTypeId) ? '&packaging_type_id='.$filterPackagingTypeId : '' ?>" 
            class="btn <?= ($filterStatus === 'instock') ? 'btn-accent' : 'btn-primary' ?>" 
            style="padding: 5px 12px; font-size: 0.82rem; <?= ($filterStatus !== 'instock') ? 'background: #F0FDF4; color: #16A34A; border: 1px solid #DCFCE7;' : '' ?>">
             🟢 En Stock (<?= $countInStock ?>)
         </a>
 
-        <a href="<?= BASE_URL ?>/stock/inventaire?status=alert<?= !empty($filterSearch) ? '&search='.urlencode($filterSearch) : '' ?><?= !empty($filterCategoryId) ? '&category_id='.$filterCategoryId : '' ?><?= !empty($filterFormatId) ? '&format_id='.$formatId : '' ?>" 
+        <a href="<?= BASE_URL ?>/stock/inventaire?status=alert<?= !empty($filterSearch) ? '&search='.urlencode($filterSearch) : '' ?><?= !empty($filterCategoryId) ? '&category_id='.$filterCategoryId : '' ?><?= !empty($filterFormatId) ? '&format_id='.$filterFormatId : '' ?><?= !empty($filterPackagingTypeId) ? '&packaging_type_id='.$filterPackagingTypeId : '' ?>" 
            class="btn <?= ($filterStatus === 'alert') ? 'btn-accent' : 'btn-primary' ?>" 
            style="padding: 5px 12px; font-size: 0.82rem; <?= ($filterStatus !== 'alert') ? 'background: #FFFBEB; color: #D97706; border: 1px solid #FEF3C7;' : '' ?>">
             ⚠️ Alerte Seuil (<?= $countAlert ?>)
         </a>
 
-        <a href="<?= BASE_URL ?>/stock/inventaire?status=rupture<?= !empty($filterSearch) ? '&search='.urlencode($filterSearch) : '' ?><?= !empty($filterCategoryId) ? '&category_id='.$filterCategoryId : '' ?><?= !empty($filterFormatId) ? '&format_id='.$formatId : '' ?>" 
+        <a href="<?= BASE_URL ?>/stock/inventaire?status=rupture<?= !empty($filterSearch) ? '&search='.urlencode($filterSearch) : '' ?><?= !empty($filterCategoryId) ? '&category_id='.$filterCategoryId : '' ?><?= !empty($filterFormatId) ? '&format_id='.$filterFormatId : '' ?><?= !empty($filterPackagingTypeId) ? '&packaging_type_id='.$filterPackagingTypeId : '' ?>" 
            class="btn <?= ($filterStatus === 'rupture') ? 'btn-accent' : 'btn-primary' ?>" 
            style="padding: 5px 12px; font-size: 0.82rem; <?= ($filterStatus !== 'rupture') ? 'background: #FEF2F2; color: #DC2626; border: 1px solid #FEE2E2;' : '' ?>">
             ⛔ En Rupture (<?= $countRupture ?>)
@@ -151,19 +166,19 @@
         <input type="hidden" name="status" value="<?= htmlspecialchars($filterStatus ?? 'all') ?>">
 
         <!-- SEARCH -->
-        <div style="flex: 2; min-width: 200px;">
+        <div style="flex: 2; min-width: 180px;">
             <label class="form-label" style="font-size: 0.82rem; margin-bottom: 4px; color: #64748B;">Recherche Produit</label>
             <div style="position: relative;">
-                <input type="text" name="search" class="form-control" placeholder="Rechercher une boisson..." value="<?= htmlspecialchars($filterSearch ?? '') ?>" style="padding-left: 32px; font-size: 0.88rem;">
+                <input type="text" name="search" class="form-control" placeholder="Nom, sigle ou brasserie..." value="<?= htmlspecialchars($filterSearch ?? '') ?>" style="padding-left: 32px; font-size: 0.88rem;">
                 <i class='bx bx-search' style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94A3B8; font-size: 1.1rem;"></i>
             </div>
         </div>
 
         <!-- CATEGORY -->
-        <div style="flex: 1.5; min-width: 170px;">
+        <div style="flex: 1.3; min-width: 150px;">
             <label class="form-label" style="font-size: 0.82rem; margin-bottom: 4px; color: #64748B;">Catégorie</label>
             <select name="category_id" class="form-control" style="font-size: 0.88rem;">
-                <option value="">-- Toutes les catégories --</option>
+                <option value="">-- Toutes catégories --</option>
                 <?php foreach ($categories as $cat): ?>
                     <option value="<?= $cat['id'] ?>" <?= (($filterCategoryId ?? '') == $cat['id']) ? 'selected' : '' ?>>
                         <?= htmlspecialchars($cat['name']) ?>
@@ -173,13 +188,26 @@
         </div>
 
         <!-- FORMAT -->
-        <div style="flex: 1.2; min-width: 150px;">
+        <div style="flex: 1.1; min-width: 130px;">
             <label class="form-label" style="font-size: 0.82rem; margin-bottom: 4px; color: #64748B;">Format / Volume</label>
             <select name="format_id" class="form-control" style="font-size: 0.88rem;">
-                <option value="">-- Tous les formats --</option>
+                <option value="">-- Tous formats --</option>
                 <?php foreach ($formats as $fmt): ?>
                     <option value="<?= $fmt['id'] ?>" <?= (($filterFormatId ?? '') == $fmt['id']) ? 'selected' : '' ?>>
                         <?= htmlspecialchars($fmt['name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+
+        <!-- MODÈLE DE CASIER / EMBALLAGE -->
+        <div style="flex: 1.6; min-width: 180px;">
+            <label class="form-label" style="font-size: 0.82rem; margin-bottom: 4px; color: #64748B;">Modèle de Casier</label>
+            <select name="packaging_type_id" class="form-control" style="font-size: 0.88rem;">
+                <option value="">-- Tous les modèles de casier --</option>
+                <?php foreach ($packagingTypes as $pt): ?>
+                    <option value="<?= $pt['id'] ?>" <?= (($filterPackagingTypeId ?? '') == $pt['id']) ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($pt['company']) ?> - <?= htmlspecialchars($pt['name']) ?> (<?= $pt['bottles_per_crate'] ?> btls)
                     </option>
                 <?php endforeach; ?>
             </select>
@@ -190,7 +218,7 @@
             <button type="submit" class="btn btn-accent" style="padding: 8px 16px; font-size: 0.88rem;">
                 <i class='bx bx-filter-alt'></i> Filtrer
             </button>
-            <?php if (!empty($filterSearch) || !empty($filterCategoryId) || !empty($filterFormatId) || ($filterStatus !== 'all' && !empty($filterStatus))): ?>
+            <?php if (!empty($filterSearch) || !empty($filterCategoryId) || !empty($filterFormatId) || !empty($filterPackagingTypeId) || ($filterStatus !== 'all' && !empty($filterStatus))): ?>
                 <a href="<?= BASE_URL ?>/stock/inventaire" class="btn btn-primary" style="padding: 8px 12px; font-size: 0.88rem; background: #64748B;" title="Réinitialiser tous les filtres">
                     <i class='bx bx-reset'></i>
                 </a>
@@ -271,6 +299,11 @@
                                 <?php endif; ?>
                                 <strong><?= htmlspecialchars($item['name']) ?></strong>
                             </div>
+                            <?php if (!empty($item['packaging_name'])): ?>
+                                <small style="display: inline-flex; align-items: center; gap: 3px; color: #64748B; font-size: 0.74rem; margin-top: 2px;">
+                                    <i class='bx bx-package' style="color: var(--c-navy);"></i> <?= htmlspecialchars($item['packaging_company'] ? $item['packaging_company'] . ' : ' : '') ?><?= htmlspecialchars($item['packaging_name']) ?>
+                                </small>
+                            <?php endif; ?>
                         </td>
                         <td style="padding: 10px 12px;"><span style="padding: 2px 8px; background: #F1F5F9; border-radius: 8px; font-size: 0.78rem;"><?= htmlspecialchars($item['category_name']) ?></span></td>
                         <td style="padding: 10px 12px; font-size: 0.85rem;"><?= htmlspecialchars($item['format_name']) ?></td>

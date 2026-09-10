@@ -44,14 +44,23 @@
             </div>
         </div>
         <div style="text-align: right;">
-            <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 800; background: <?= $sale['status'] === 'Valid' ? '#DCFCE7; color: #166534;' : '#FEE2E2; color: #991B1B;' ?> margin-bottom: 8px;">
-                <?= $sale['status'] === 'Valid' ? '✓ FACTURE VALIDÉE' : '⛔ FACTURE ANNULÉE' ?>
+            <?php 
+                $isTourneeOpen = !empty($sale['tournee_id']) && (strtolower($sale['tournee_status'] ?? '') !== 'cloturee');
+            ?>
+            <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 800; margin-bottom: 8px; <?= $sale['status'] !== 'Valid' ? 'background: #FEE2E2; color: #991B1B;' : ($isTourneeOpen ? 'background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;' : 'background: #DCFCE7; color: #166534;') ?>">
+                <?php if ($sale['status'] !== 'Valid'): ?>
+                    ⛔ FACTURE ANNULÉE
+                <?php elseif ($isTourneeOpen): ?>
+                    🟡 VENTE EN COURS DE TOURNÉE (<?= htmlspecialchars($sale['tournee_reference'] ?? '') ?>)
+                <?php else: ?>
+                    ✓ FACTURE VALIDÉE <?= !empty($sale['tournee_reference']) ? '(Tournée ' . htmlspecialchars($sale['tournee_reference']) . ' Clôturée)' : '' ?>
+                <?php endif; ?>
             </div>
             <div style="font-size: 1.3rem; font-weight: 800; color: var(--c-navy-dark);">
                 <?= htmlspecialchars($sale['id']) ?>
             </div>
             <div style="font-size: 0.85rem; color: var(--c-gray-600);">
-                Date : <strong><?= date('d/m/Y', strtotime($sale['sale_date'])) ?></strong>
+                Date : <strong><?= date('d/m/Y', strtotime($sale['sale_date'])) ?><?= !empty($sale['created_at']) ? ' à ' . date('H:i', strtotime($sale['created_at'])) : '' ?></strong>
             </div>
         </div>
     </div>
@@ -101,8 +110,9 @@
 
                 foreach ($sale['items'] as $item): 
                     $totalCasiers += floatval($item['stock_equivalent']);
+                    $hasDemi = !empty($item['has_demi']) || ($item['format_type'] === 'demi');
+                    $qtyCasiers = floatval($item['quantity']);
                     $pkgLabel = \App\Core\Helper::formatPackagingLabel($item['category_name'] ?? '', $item['format_name'] ?? '', $item['format_type'] ?? 'casier');
-                    $isDemi = ($item['format_type'] === 'demi');
                     $isRet = !empty($item['is_returnable']);
                     $cratesOut = intval($item['crates_out'] ?? 0);
                     $bottlesOut = intval($item['bottles_out'] ?? 0);
@@ -146,28 +156,44 @@
                             </div>
                         <?php elseif ($isRet && ($cratesRet > 0 || $bottlesRet > 0)): ?>
                             <div style="font-size: 0.75rem; color: #16A34A; font-weight: 600; margin-top: 3px;">
-                                ✓ <?= $cratesRet ?> casier(s)<?= $bottlesRet > 0 ? ' & ' . $bottlesRet . ' btl(s)' : '' ?> vide(s) restitué(s) au comptoir 🟢
+                                ✓ <?= $cratesRet ?> casier(s)<?= $bottlesRet > 0 ? ' & ' . $bottlesRet . ' btl(s)' : '' ?> vide(s) restitué(s) <?= (!empty($sale['tournee_id']) || ($sale['sale_type'] ?? '') === 'route') ? 'au camion / carnet' : 'au comptoir' ?> 🟢
                             </div>
                         <?php endif; ?>
                     </td>
                     <td style="padding: 12px; text-align: center;">
-                        <?php 
-                            $badgeStyle = '#E0E7FF; color: #3730A3;';
-                            if ($item['format_type'] === 'demi') {
-                                $badgeStyle = '#FEF3C7; color: #92400E;';
-                            } elseif ($item['format_type'] === 'unite' || $item['format_type'] === 'bouteille') {
-                                $badgeStyle = '#DCFCE7; color: #166534;';
-                            }
-                        ?>
-                        <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: <?= $badgeStyle ?>">
-                            <?= htmlspecialchars($pkgLabel) ?>
-                        </span>
+                        <?php if ($hasDemi && $qtyCasiers > 0): ?>
+                            <span style="display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 0.78rem; font-weight: 700; background: #E0E7FF; color: #3730A3;">Casier</span>
+                            <span style="font-weight: 700; color: #64748B;">+</span>
+                            <span style="display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 0.78rem; font-weight: 700; background: #FEF3C7; color: #92400E;">Demi</span>
+                        <?php elseif ($hasDemi && $qtyCasiers == 0): ?>
+                            <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: #FEF3C7; color: #92400E;">Demi-Casier (0.5)</span>
+                        <?php elseif ($item['format_type'] === 'unite' || $item['format_type'] === 'bouteille'): ?>
+                            <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: #DCFCE7; color: #166534;">Bouteille / Unité</span>
+                        <?php else: ?>
+                            <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: #E0E7FF; color: #3730A3;">
+                                <?= htmlspecialchars($pkgLabel) ?>
+                            </span>
+                        <?php endif; ?>
                     </td>
                     <td style="padding: 12px; text-align: center; font-weight: 800; font-size: 1rem; color: var(--c-navy);">
-                        <?= number_format($item['quantity'], 0) ?>
+                        <?php if ($hasDemi && $qtyCasiers > 0): ?>
+                            <?= number_format($qtyCasiers, 0) ?> c. + 1 demi
+                            <div style="font-size: 0.72rem; color: #64748B; font-weight: 600;">(<?= number_format($item['stock_equivalent'], 1, ',', ' ') ?> eq.)</div>
+                        <?php elseif ($hasDemi && $qtyCasiers == 0): ?>
+                            1 demi (0.5)
+                        <?php else: ?>
+                            <?= number_format($item['quantity'], 0) ?>
+                        <?php endif; ?>
                     </td>
                     <td style="padding: 12px; text-align: right; color: var(--c-gray-700);">
-                        <?= number_format($item['unit_price'], 0, ',', ' ') ?> FCFA
+                        <?php if ($hasDemi && $qtyCasiers > 0): ?>
+                            <div><?= number_format($item['unit_price'], 0, ',', ' ') ?> F / c.</div>
+                            <div style="font-size: 0.74rem; color: #92400E; font-weight: 600;">+<?= number_format($item['demi_unit_price'], 0, ',', ' ') ?> F (demi-casier liquide)</div>
+                        <?php elseif ($hasDemi && $qtyCasiers == 0): ?>
+                            <?= number_format($item['demi_unit_price'], 0, ',', ' ') ?> FCFA (demi-casier liquide)
+                        <?php else: ?>
+                            <?= number_format($item['unit_price'], 0, ',', ' ') ?> FCFA
+                        <?php endif; ?>
                     </td>
                     <td style="padding: 12px; text-align: right; font-weight: 800; color: var(--c-navy-dark);">
                         <?= number_format($item['total_price'], 0, ',', ' ') ?> FCFA
@@ -190,7 +216,7 @@
                 Total Volume Boissons : <strong><?= number_format($totalCasiers, 1) ?> Unité(s) Grossiste Équivalentes</strong>
             </div>
             <?php if (!empty($debtsByProduct)): ?>
-                <div style="font-size: 0.85rem; color: #D97706; font-weight: 700; margin-top: 6px; background: #FFFBEB; padding: 8px 12px; border-radius: 6px; border: 1px solid #FEF3C7; display: inline-block;">
+                <div style="font-size: 0.85rem; color: #D97706; font-weight: 700; margin-top: 6px; background: #FFFBEB; padding: 10px 14px; border-radius: 6px; border: 1px solid #FEF3C7; display: inline-block;">
                     <i class='bx bx-archive'></i> Dettes Emballages sur cette Facture : 
                     <div style="margin-top: 5px; display: flex; flex-wrap: wrap; gap: 6px;">
                         <?php foreach ($debtsByProduct as $d): ?>
@@ -206,10 +232,13 @@
                             </span>
                         <?php endforeach; ?>
                     </div>
+                    <div style="font-size: 0.75rem; color: #78350F; font-weight: 500; margin-top: 5px; line-height: 1.3;">
+                        <i class='bx bx-info-circle'></i> <em>Suivi Emballages : Les dettes d'emballages sont gérées exclusivement en unités physiques (casiers/bouteilles à restituer). Aucun frais d'emballage n'est facturé en argent sur cette note.</em>
+                    </div>
                 </div>
             <?php endif; ?>
         </div>
-        <div style="text-align: right; min-width: 280px;">
+        <div style="text-align: right; min-width: 290px;">
             <?php 
             $subTotal = floatval($sale['total_amount']);
             $discount = floatval($sale['discount_amount'] ?? 0);
@@ -217,6 +246,8 @@
             $netPayable = max(0, $subTotal - $discount - $avoirUsed);
             $paid = floatval($sale['amount_paid'] ?? 0);
             $due = floatval($sale['amount_due'] ?? 0);
+            $excessAmount = floatval($sale['excess_amount'] ?? 0);
+            $totalReceived = $paid + $excessAmount;
             $cashDebt = max(0, $netPayable - $paid);
             ?>
             <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem;">
@@ -239,10 +270,38 @@
                 <span>NET À PAYER :</span>
                 <span><?= number_format($netPayable, 0, ',', ' ') ?> FCFA</span>
             </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.88rem; color: #16A34A;">
-                <span>Montant Versé :</span>
-                <strong style="font-weight: 800;"><?= number_format($paid, 0, ',', ' ') ?> FCFA</strong>
-            </div>
+
+            <?php if ($excessAmount > 0): ?>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.88rem; color: #16A34A;">
+                    <span>Total Espèces Reçu :</span>
+                    <strong style="font-weight: 800;"><?= number_format($totalReceived, 0, ',', ' ') ?> FCFA</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.88rem; color: #047857;">
+                    <span>Montant Imputé Facture :</span>
+                    <strong style="font-weight: 800;"><?= number_format($paid, 0, ',', ' ') ?> FCFA</strong>
+                </div>
+                <?php if (!empty($isTourneeOpen)): ?>
+                    <div style="background: #FFFBEB; border: 1px dashed #D97706; padding: 8px 12px; border-radius: 6px; margin-top: 6px; font-size: 0.82rem; color: #92400E; text-align: left;">
+                        <i class='bx bx-time'></i> <strong>Avoir Collecté par Chauffeur :</strong> +<?= number_format($excessAmount, 0, ',', ' ') ?> FCFA
+                        <div style="font-size: 0.74rem; color: #B45309; margin-top: 2px;">
+                            En attente de décharge de la tournée <?= htmlspecialchars($sale['tournee_reference'] ?? '') ?>. Sera crédité sur votre compte client dès validation au dépôt.
+                        </div>
+                    </div>
+                <?php else: ?>
+                    <div style="background: #ECFDF5; border: 1px dashed #10B981; padding: 8px 12px; border-radius: 6px; margin-top: 6px; font-size: 0.82rem; color: #065F46; text-align: left;">
+                        <i class='bx bx-check-circle'></i> <strong>Avoir Client Généré (Surplus) :</strong> +<?= number_format($excessAmount, 0, ',', ' ') ?> FCFA
+                        <div style="font-size: 0.74rem; color: #047857; margin-top: 2px;">
+                            Crédité sur votre compte client comme avance sur vos prochains achats.
+                        </div>
+                    </div>
+                <?php endif; ?>
+            <?php else: ?>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.88rem; color: #16A34A;">
+                    <span>Montant Versé :</span>
+                    <strong style="font-weight: 800;"><?= number_format($paid, 0, ',', ' ') ?> FCFA</strong>
+                </div>
+            <?php endif; ?>
+
             <?php if ($cashDebt > 0): ?>
             <div style="display: flex; justify-content: space-between; font-size: 0.95rem; color: #DC2626; border-top: 1px dashed #CBD5E1; padding-top: 4px; margin-top: 4px;">
                 <span style="font-weight: 700;">Reste Dû (Dette Client) :</span>

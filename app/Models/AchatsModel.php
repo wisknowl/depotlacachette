@@ -219,14 +219,15 @@ class AchatsModel {
         foreach ($rawItems as $idx => $item) {
             $prodId = intval($item['product_id'] ?? 0);
             $qty = floatval($item['quantity'] ?? 0);
-            $formatType = in_array($item['format_type'] ?? '', ['casier', 'demi']) ? $item['format_type'] : 'casier';
+            $hasDemi = !empty($item['has_demi']) ? 1 : 0;
             $unitPrice = floatval($item['unit_price'] ?? 0);
+            $demiUnitPrice = floatval($item['demi_unit_price'] ?? ($unitPrice / 2));
 
             if ($prodId <= 0) continue;
-            if ($qty <= 0) {
+            if ($qty <= 0 && !$hasDemi) {
                 throw new \Exception("La quantité approvisionnée à la ligne " . ($idx + 1) . " doit être supérieure à 0.");
             }
-            if ($unitPrice <= 0) {
+            if ($unitPrice <= 0 && $demiUnitPrice <= 0) {
                 throw new \Exception("Le prix d'achat unitaire à la ligne " . ($idx + 1) . " doit être supérieur à 0 FCFA.");
             }
 
@@ -246,13 +247,15 @@ class AchatsModel {
             // If deficit exists, check if billed/charged or recorded as supplier crate debt
             $emballageTotal = ($isReturnable && $deficitCrates > 0 && $packagingMode === 'charge') ? ($deficitCrates * $emballageCost) : 0.00;
 
-            $stockEquivalent = ($formatType === 'demi') ? ($qty * 0.5) : $qty;
-            $drinkTotal = $qty * $unitPrice;
+            $stockEquivalent = $qty + ($hasDemi ? 0.5 : 0.0);
+            $drinkTotal = ($qty * $unitPrice) + ($hasDemi ? $demiUnitPrice : 0.0);
             $lineTotal = $drinkTotal + $emballageTotal;
             $ristourneUnit = floatval($item['ristourne_unit'] ?? 0);
-            $totalRistourne = $qty * $ristourneUnit;
+            $totalRistourne = ($qty + ($hasDemi ? 0.5 : 0.0)) * $ristourneUnit;
             $totalAmount += $lineTotal;
             $totalEmballageAmount = ($totalEmballageAmount ?? 0) + $emballageTotal;
+
+            $formatType = ($qty == 0 && $hasDemi) ? 'demi' : 'casier';
 
             $processedItems[] = [
                 'product_id' => $product['id'],
@@ -260,12 +263,14 @@ class AchatsModel {
                 'packaging_type_id' => $product['packaging_type_id'],
                 'format_id' => $product['format_id'],
                 'format_type' => $formatType,
+                'has_demi' => $hasDemi,
                 'is_returnable' => $isReturnable,
                 'empties_returned' => $emptiesReturned,
                 'emballage_cost' => $emballageCost,
                 'emballage_total' => $emballageTotal,
                 'quantity' => $qty,
                 'unit_price' => $unitPrice,
+                'demi_unit_price' => $demiUnitPrice,
                 'ristourne_unit' => $ristourneUnit,
                 'total_ristourne' => $totalRistourne,
                 'total_price' => $lineTotal,
@@ -351,8 +356,8 @@ class AchatsModel {
 
             // 2. Insert Purchase Items and Stock Movements (Entrée Stock)
             $stmtItem = $this->db->prepare("
-                INSERT INTO purchase_items (purchase_id, product_id, format_type, quantity, unit_price, is_returnable, empties_returned, emballage_cost, emballage_total, ristourne_unit, total_ristourne, total_price, stock_equivalent)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO purchase_items (purchase_id, product_id, format_type, has_demi, quantity, unit_price, demi_unit_price, is_returnable, empties_returned, emballage_cost, emballage_total, ristourne_unit, total_ristourne, total_price, stock_equivalent)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $stmtStock = $this->db->prepare("
@@ -365,8 +370,10 @@ class AchatsModel {
                     $id,
                     $item['product_id'],
                     $item['format_type'],
+                    $item['has_demi'],
                     $item['quantity'],
                     $item['unit_price'],
+                    $item['demi_unit_price'],
                     $item['is_returnable'],
                     $item['empties_returned'],
                     $item['emballage_cost'],
@@ -391,7 +398,7 @@ class AchatsModel {
                 ]);
 
                 // Update product catalog purchase price to the latest supplier invoice price
-                $latestFullPrice = ($item['format_type'] === 'demi') ? ($item['unit_price'] * 2) : $item['unit_price'];
+                $latestFullPrice = ($item['unit_price'] > 0) ? $item['unit_price'] : ($item['demi_unit_price'] * 2);
                 $stmtUpdateCost = $this->db->prepare("UPDATE products SET purchase_price = ? WHERE id = ?");
                 $stmtUpdateCost->execute([$latestFullPrice, $item['product_id']]);
 
