@@ -45,13 +45,14 @@
         </div>
         <div style="text-align: right;">
             <?php 
-                $isTourneeOpen = !empty($sale['tournee_id']) && (strtolower($sale['tournee_status'] ?? '') !== 'cloturee');
+                $isTourneeOpen = !empty($sale['tournee_id']) && (strtolower($sale['tournee_status'] ?? '') !== 'cloturee' || $sale['status'] === 'En_Route');
+                $isCancelled = ($sale['status'] === 'Cancelled');
             ?>
-            <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 800; margin-bottom: 8px; <?= $sale['status'] !== 'Valid' ? 'background: #FEE2E2; color: #991B1B;' : ($isTourneeOpen ? 'background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;' : 'background: #DCFCE7; color: #166534;') ?>">
-                <?php if ($sale['status'] !== 'Valid'): ?>
+            <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 800; margin-bottom: 8px; <?= $isCancelled ? 'background: #FEE2E2; color: #991B1B;' : ($isTourneeOpen ? 'background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;' : 'background: #DCFCE7; color: #166534;') ?>">
+                <?php if ($isCancelled): ?>
                     ⛔ FACTURE ANNULÉE
                 <?php elseif ($isTourneeOpen): ?>
-                    🟡 VENTE EN COURS DE TOURNÉE (<?= htmlspecialchars($sale['tournee_reference'] ?? '') ?>)
+                    🟡 VENTE EN COURS DE TOURNÉE (<?= htmlspecialchars($sale['tournee_reference'] ?? '') ?> - Non clôturée)
                 <?php else: ?>
                     ✓ FACTURE VALIDÉE <?= !empty($sale['tournee_reference']) ? '(Tournée ' . htmlspecialchars($sale['tournee_reference']) . ' Clôturée)' : '' ?>
                 <?php endif; ?>

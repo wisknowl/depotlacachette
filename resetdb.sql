@@ -48,6 +48,9 @@ ALTER TABLE `supplier_payments` AUTO_INCREMENT = 1;
 DELETE FROM `payroll_payments`;
 ALTER TABLE `payroll_payments` AUTO_INCREMENT = 1;
 
+DELETE FROM `employee_ledger`;
+ALTER TABLE `employee_ledger` AUTO_INCREMENT = 1;
+
 DELETE FROM `expenses`;
 ALTER TABLE `expenses` AUTO_INCREMENT = 1;
 

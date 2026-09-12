@@ -298,11 +298,14 @@ ul {
     flex-direction: column;
     transition: var(--transition);
     width: calc(100% - var(--sidebar-width));
+    min-width: 0;
+    max-width: calc(100% - var(--sidebar-width));
 }
 
 .app-container.collapsed .main-content {
     margin-left: var(--sidebar-width-collapsed);
     width: calc(100% - var(--sidebar-width-collapsed));
+    max-width: calc(100% - var(--sidebar-width-collapsed));
 }
 
 /* --- TOP HEADER --- */
@@ -483,6 +486,8 @@ ul {
 .page-content {
     padding: 20px;
     flex: 1;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .page-title {
@@ -505,6 +510,8 @@ ul {
     box-shadow: var(--shadow-sm);
     padding: 20px;
     margin-bottom: 20px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .card-header {
@@ -577,6 +584,10 @@ ul {
 /* Tables */
 .table-responsive {
     overflow-x: auto;
+    width: 100%;
+    max-width: 100%;
+    display: block;
+    -webkit-overflow-scrolling: touch;
 }
 
 .table {
@@ -607,6 +618,13 @@ ul {
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     gap: 20px;
     margin-bottom: 20px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.dashboard-grid > * {
+    min-width: 0;
+    max-width: 100%;
 }
 
 .stat-card {

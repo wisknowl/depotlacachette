@@ -400,7 +400,7 @@ class VentesModel {
                                FROM sale_items si 
                                JOIN sales s ON si.sale_id = s.id 
                                WHERE s.tournee_id = ti.tournee_id 
-                                 AND s.status = 'Valid' 
+                                 AND s.status IN ('En_Route', 'Valid') 
                                  AND si.product_id = ti.product_id
                            ), 0) as already_sold
                     FROM tournee_items ti
@@ -479,14 +479,16 @@ class VentesModel {
         try {
             $id = $this->generateSaleId();
 
+            $initialStatus = !empty($tourneeId) ? 'En_Route' : 'Valid';
+
             $stmt = $this->db->prepare("
                 INSERT INTO sales (id, sale_date, client_id, total_amount, discount_amount, avoir_used, amount_paid, amount_due, excess_amount, payment_method_id, cash_account_id, reference, notes, user_id, tournee_id, sale_type, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Valid')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $id, $data['sale_date'], $client['id'], $subTotal, $discountAmount, $avoirUsed, $amountPaid, $amountDue, $excessCash,
                 $paymentMethodId, $cashAccountId, !empty($data['reference']) ? $data['reference'] : $id, $data['notes'] ?? '', $userId,
-                $tourneeId, $saleType
+                $tourneeId, $saleType, $initialStatus
             ]);
 
 
@@ -545,7 +547,9 @@ class VentesModel {
                                  ->execute([$pkgTypeId, $id, $client['id'], $item['crates_returned'], $item['bottles_returned'], "Entrée casiers vides rapportés au comptoir (Vente $id)", $userId]);
                     }
 
-                    if ($item['net_crates_due'] > 0 || $item['net_bottles_due'] > 0) {
+                    // Client packaging debt: only commit immediately for COUNTER sales
+                    // (For route sales, packaging debt stays staged in sale_items until tournee décharge/clôture)
+                    if (empty($tourneeId) && ($item['net_crates_due'] > 0 || $item['net_bottles_due'] > 0)) {
                         $stmtFetchCurDebt->execute([$client['id'], $pkgTypeId]);
                         $curDebt = $stmtFetchCurDebt->fetch();
                         $curTotalBtls = (intval($curDebt['crates_due'] ?? 0) * $factor) + intval($curDebt['loose_bottles_due'] ?? 0);
@@ -888,8 +892,8 @@ class VentesModel {
                     $factor = max(1, intval($item['factor'] ?: 12));
                     $missingBottles = max(0, intval($item['bottles_out']) - (intval($item['crates_returned']) * $factor + intval($item['bottles_returned'])));
 
-                    // Relief client packaging debt in both counter and tournee sales
-                    if ($missingBottles > 0) {
+                    // Relief client packaging debt: only if this was NOT a route sale OR if the sale was already Valid (committed)
+                    if ($missingBottles > 0 && (!$isTourneeSale || $sale['status'] === 'Valid')) {
                         $stmtFetchDebt->execute([$sale['client_id'], $pkgTypeId]);
                         if ($curDebt = $stmtFetchDebt->fetch()) {
                             $newTotalBtls = max(0, (intval($curDebt['crates_due']) * $factor + intval($curDebt['loose_bottles_due'])) - $missingBottles);

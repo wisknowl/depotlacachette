@@ -3,15 +3,22 @@ namespace App\Controllers;
 use App\Core\Controller;
 use App\Core\Helper;
 use App\Models\PayrollModel;
+use App\Models\EmployeeLedgerModel;
 
 class PayrollController extends Controller {
     private $model;
-    public function __construct() { $this->model = new PayrollModel(); }
+    private $ledgerModel;
+
+    public function __construct() { 
+        $this->model = new PayrollModel(); 
+        $this->ledgerModel = new EmployeeLedgerModel();
+    }
 
     public function index() {
         $payments = $this->model->getAll(100);
         $monthlyStats = $this->model->getMonthlyPayrollStats();
         $employees = $this->model->getEmployees(true);
+        $totalEmployeeDebt = $this->model->getTotalOutstandingDebt();
 
         $this->view('pages/payroll/index', [
             'title' => 'Paie du Personnel & Avances sur Salaire',
@@ -19,6 +26,7 @@ class PayrollController extends Controller {
             'payments' => $payments,
             'stats' => $monthlyStats,
             'employees' => $employees,
+            'total_employee_debt' => $totalEmployeeDebt,
             'flash_success' => $_SESSION['flash_success'] ?? null,
             'flash_error' => $_SESSION['flash_error'] ?? null
         ]);
@@ -169,5 +177,99 @@ class PayrollController extends Controller {
             }
         }
         $this->redirect('payroll');
+    }
+
+    public function ledger($employeeId = null) {
+        $empId = intval($employeeId ?: ($_GET['employee_id'] ?? 0));
+        $type = trim($_GET['type'] ?? '');
+        $dateFrom = trim($_GET['date_from'] ?? '');
+        $dateTo = trim($_GET['date_to'] ?? '');
+        $search = trim($_GET['search'] ?? '');
+
+        $filters = [
+            'employee_id' => $empId,
+            'transaction_type' => $type,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'search' => $search
+        ];
+
+        $entries = $this->ledgerModel->getFilteredEntries($filters, 250);
+        $stats = $this->ledgerModel->getLedgerStats($empId);
+        $employees = $this->model->getEmployees(false);
+        $cashAccounts = $this->model->getCashAccountsWithBalances();
+
+        $selectedEmployee = null;
+        if ($empId > 0) {
+            foreach ($employees as $e) {
+                if ($e['id'] == $empId) {
+                    $selectedEmployee = $e;
+                    break;
+                }
+            }
+        }
+
+        $pageTitle = $selectedEmployee 
+            ? 'Grand-Livre : ' . htmlspecialchars($selectedEmployee['name']) . ' (' . htmlspecialchars($selectedEmployee['role']) . ')'
+            : 'Grand-Livre & Mouvements des Employés';
+
+        $this->view('pages/payroll/ledger', [
+            'title' => $pageTitle,
+            'active_menu' => 'payroll',
+            'entries' => $entries,
+            'stats' => $stats,
+            'employees' => $employees,
+            'cash_accounts' => $cashAccounts,
+            'selected_employee_id' => $empId,
+            'selected_employee' => $selectedEmployee,
+            'selected_type' => $type,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'search' => $search,
+            'flash_success' => $_SESSION['flash_success'] ?? null,
+            'flash_error' => $_SESSION['flash_error'] ?? null
+        ]);
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+    }
+
+    public function saveReimbursement() {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            try {
+                $userId = $_SESSION['user']['id'] ?? 1;
+                $empId = intval($_POST['employee_id'] ?? 0);
+                $amount = floatval($_POST['amount'] ?? 0);
+                $cashAccountId = intval($_POST['cash_account_id'] ?? 0);
+                $paymentDate = !empty($_POST['payment_date']) ? $_POST['payment_date'] : date('Y-m-d');
+                $notes = trim($_POST['notes'] ?? '');
+
+                if ($empId <= 0) {
+                    throw new \Exception("Veuillez sélectionner un employé.");
+                }
+                if ($amount <= 0) {
+                    throw new \Exception("Le montant du remboursement doit être supérieur à 0 FCFA.");
+                }
+                if ($cashAccountId <= 0) {
+                    throw new \Exception("Veuillez choisir la caisse de destination.");
+                }
+
+                $ref = $this->ledgerModel->recordReimbursementPayment([
+                    'employee_id' => $empId,
+                    'amount' => $amount,
+                    'cash_account_id' => $cashAccountId,
+                    'payment_date' => $paymentDate,
+                    'notes' => $notes,
+                    'user_id' => $userId
+                ]);
+
+                $_SESSION['flash_success'] = "Remboursement {$ref} de " . number_format($amount, 0, ',', ' ') . " FCFA enregistré avec succès ! La caisse a été créditée et le compte de l'employé a été régularisé.";
+                $this->redirect('payroll/ledger?employee_id=' . $empId);
+                return;
+            } catch (\Exception $e) {
+                $_SESSION['flash_error'] = "Erreur lors du remboursement : " . $e->getMessage();
+                $this->redirect('payroll/ledger' . ($empId > 0 ? '?employee_id=' . $empId : ''));
+                return;
+            }
+        }
+        $this->redirect('payroll/ledger');
     }
 }

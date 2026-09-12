@@ -58,13 +58,32 @@
             <div class="stat-label">Employés Actifs au Dépôt</div>
         </div>
     </div>
+
+    <?php if (!empty($total_employee_debt) && $total_employee_debt > 0): ?>
+    <div class="stat-card" style="border-left: 4px solid var(--c-danger); background: #FFFBFB;">
+        <div class="stat-icon" style="background-color: rgba(220, 38, 38, 0.15); color: var(--c-danger);">
+            <i class='bx bx-error-alt'></i>
+        </div>
+        <div class="stat-content">
+            <div class="stat-value" style="color: var(--c-danger);"><?= number_format($total_employee_debt, 0, ',', ' ') ?> FCFA</div>
+            <div class="stat-label">
+                <a href="<?= BASE_URL ?>/payroll/ledger" style="color: #991B1B; text-decoration: none; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;" title="Consulter les manquants de tournée et dettes en cours">
+                    Manquants en Cours <i class='bx bx-right-arrow-alt'></i>
+                </a>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
 
 <!-- PAYROLL JOURNAL TABLE -->
 <div class="card">
     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
         <span><i class='bx bx-history'></i> Journal des Décaissements de Paie</span>
-        <div style="display: flex; gap: 10px;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="<?= BASE_URL ?>/payroll/ledger" class="btn btn-primary" style="background-color: var(--c-navy); padding: 8px 14px;">
+                <i class='bx bx-book-content'></i> Grand-Livre Collaborateurs
+            </a>
             <a href="<?= BASE_URL ?>/payroll/employees" class="btn btn-primary" style="background-color: var(--c-navy); padding: 8px 14px;">
                 <i class='bx bx-user'></i> Gérer les Employés
             </a>

@@ -56,11 +56,10 @@ $totalCreditFromSales = 0;
 $soldItemsMap = [];
 
 foreach ($sales as $s) {
-    if ($s['status'] === 'Valid') {
+    if (in_array($s['status'], ['En_Route', 'Valid'])) {
         $totalSoldFromSales += floatval($s['total_amount']);
-        if ($s['payment_method_id'] == 5) {
-            $totalCreditFromSales += floatval($s['total_amount']);
-        } else {
+        $totalCreditFromSales += ($s['payment_method_id'] == 5) ? floatval($s['total_amount']) : floatval($s['amount_due']);
+        if ($s['payment_method_id'] != 5) {
             $totalCashFromSales += floatval($s['amount_paid'] ?: $s['total_amount']) + floatval($s['excess_amount'] ?? 0);
         }
     }
@@ -82,10 +81,15 @@ foreach ($sales as $s) {
         <span style="font-size: 0.72rem; color: #64748B;"><?= count($sales) ?> facture(s)</span>
     </div>
     <div style="background: white; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px 18px;">
-        <span style="font-size: 0.78rem; font-weight: 700; color: #64748B; text-transform: uppercase;">3. Cash Encaissé Ventes</span>
+        <span style="font-size: 0.78rem; font-weight: 700; color: #64748B; text-transform: uppercase;">
+            <?= ($tournee['status'] === 'Cloturee') ? '3. Cash Versé en Caisse' : '3. Cash Encaissé Ventes' ?>
+        </span>
         <div style="font-size: 1.3rem; font-weight: 900; color: #16A34A; margin-top: 2px;">
-            <?= number_format($totalCashFromSales, 0, ',', ' ') ?> FCFA
+            <?= number_format(($tournee['status'] === 'Cloturee' && isset($tournee['cash_deposited'])) ? floatval($tournee['cash_deposited']) : $totalCashFromSales, 0, ',', ' ') ?> FCFA
         </div>
+        <?php if ($tournee['status'] === 'Cloturee' && floatval($tournee['cash_shortage'] ?? 0) > 0): ?>
+            <span style="font-size: 0.72rem; color: #DC2626; font-weight: 700;">-<?= number_format($tournee['cash_shortage'], 0, ',', ' ') ?> F manquant</span>
+        <?php endif; ?>
     </div>
     <div style="background: white; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px 18px;">
         <span style="font-size: 0.78rem; font-weight: 700; color: #64748B; text-transform: uppercase;">4. Créances / Crédit</span>

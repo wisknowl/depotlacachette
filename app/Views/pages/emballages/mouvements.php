@@ -55,6 +55,7 @@
                 <option value="Purchase_Drink" <?= (($filters['movement_type'] ?? '') === 'Purchase_Drink') ? 'selected' : '' ?>>Échange Camion Achat</option>
                 <option value="Sale_Drink" <?= (($filters['movement_type'] ?? '') === 'Sale_Drink') ? 'selected' : '' ?>>Sortie Vente</option>
                 <option value="Client_Return" <?= (($filters['movement_type'] ?? '') === 'Client_Return') ? 'selected' : '' ?>>Restitution Client</option>
+                <option value="Route_Return" <?= (($filters['movement_type'] ?? '') === 'Route_Return') ? 'selected' : '' ?>>Retour Tournée (Décharge)</option>
                 <option value="Supplier_Return" <?= (($filters['movement_type'] ?? '') === 'Supplier_Return') ? 'selected' : '' ?>>Restitution Fournisseur</option>
             </select>
         </div>
@@ -126,6 +127,7 @@
                                     'Purchase_Drink' => ['Sortie Vides (Échange Camion)', '#0284C7', '#E0F2FE'],
                                     'Sale_Drink' => ['Sortie Vente', '#D97706', '#FEF3C7'],
                                     'Client_Return' => ['Entrée Vides (Retour Client)', '#16A34A', '#DCFCE7'],
+                                    'Route_Return' => ['Retour Tournée (Décharge)', '#059669', '#D1FAE5'],
                                     'Supplier_Return' => ['Sortie Vides (Retour Fournisseur)', '#475569', '#F1F5F9'],
                                     'Breakage' => ['Casse / Perte', '#DC2626', '#FEE2E2'],
                                     'Adjustment' => ['Ajustement', '#8B5CF6', '#EDE9FE'],

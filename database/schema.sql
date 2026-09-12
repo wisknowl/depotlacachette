@@ -280,7 +280,7 @@ CREATE TABLE `emballage_movements` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `packaging_type_id` INT NOT NULL,
     `movement_type` VARCHAR(50) NOT NULL,
-    `reference_id` INT DEFAULT NULL,
+    `reference_id` VARCHAR(50) DEFAULT NULL,
     `client_id` INT DEFAULT NULL,
     `supplier_id` INT DEFAULT NULL,
     `crates_in` INT NOT NULL DEFAULT 0,
@@ -423,7 +423,7 @@ CREATE TABLE `sales` (
     `user_id` INT NOT NULL,
     `tournee_id` INT DEFAULT NULL,
     `sale_type` ENUM('comptoir', 'route') NOT NULL DEFAULT 'comptoir',
-    `status` ENUM('Valid', 'Cancelled') NOT NULL DEFAULT 'Valid',
+    `status` ENUM('Valid', 'Cancelled', 'En_Route') NOT NULL DEFAULT 'Valid',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY `client_id` (`client_id`),
     KEY `payment_method_id` (`payment_method_id`),
@@ -585,6 +585,28 @@ CREATE TABLE `payroll_payments` (
     CONSTRAINT `payroll_payments_ibfk_1` FOREIGN KEY (`employee_id`) REFERENCES `employees` (`id`),
     CONSTRAINT `payroll_payments_ibfk_2` FOREIGN KEY (`cash_account_id`) REFERENCES `cash_accounts` (`id`),
     CONSTRAINT `payroll_payments_ibfk_3` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+DROP TABLE IF EXISTS `employee_ledger`;
+CREATE TABLE `employee_ledger` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `employee_id` INT NOT NULL,
+    `transaction_date` DATETIME NOT NULL,
+    `transaction_type` VARCHAR(50) NOT NULL,
+    `source_type` VARCHAR(50) NOT NULL,
+    `source_id` VARCHAR(50) NOT NULL,
+    `reference` VARCHAR(100) DEFAULT NULL,
+    `amount_debit` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    `amount_credit` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    `description` VARCHAR(255) NOT NULL,
+    `notes` TEXT DEFAULT NULL,
+    `created_by` INT NOT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY `employee_id` (`employee_id`),
+    KEY `idx_source` (`source_type`, `source_id`),
+    KEY `transaction_date` (`transaction_date`),
+    CONSTRAINT `employee_ledger_ibfk_1` FOREIGN KEY (`employee_id`) REFERENCES `employees` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `employee_ledger_ibfk_2` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 DROP TABLE IF EXISTS `cash_transactions`;

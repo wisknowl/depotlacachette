@@ -15,12 +15,28 @@ class PayrollModel {
     }
 
     public function getEmployees($onlyActive = true) {
-        $sql = "SELECT * FROM employees";
+        $sql = "
+            SELECT 
+                e.*,
+                COALESCE(SUM(el.amount_debit), 0) as total_debit,
+                COALESCE(SUM(el.amount_credit), 0) as total_credit,
+                (COALESCE(SUM(el.amount_debit), 0) - COALESCE(SUM(el.amount_credit), 0)) as net_balance
+            FROM employees e
+            LEFT JOIN employee_ledger el ON e.id = el.employee_id
+        ";
         if ($onlyActive) {
-            $sql .= " WHERE status = 'Active'";
+            $sql .= " WHERE e.status = 'Active'";
         }
-        $sql .= " ORDER BY name ASC";
+        $sql .= " GROUP BY e.id, e.name, e.phone, e.role, e.base_salary, e.status, e.created_at ORDER BY e.name ASC";
         return $this->db->query($sql)->fetchAll();
+    }
+
+    public function getTotalOutstandingDebt() {
+        $stmt = $this->db->query("
+            SELECT (COALESCE(SUM(amount_debit), 0) - COALESCE(SUM(amount_credit), 0)) as total_debt
+            FROM employee_ledger
+        ");
+        return floatval($stmt->fetchColumn() ?? 0);
     }
 
     public function getEmployeeById($id) {
