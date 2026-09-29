@@ -64,6 +64,7 @@
 <?php endif; ?>
 
 <form action="<?= BASE_URL ?>/achats/save" method="POST" id="achats_multi_form">
+    <input type="hidden" name="action_type" id="purchase_action_type" value="validate">
     
     <!-- TOP SECTION: SUPPLIER, INVOICE REF & DATES -->
     <div class="card" style="margin-bottom: 20px;">
@@ -229,9 +230,12 @@
                 <input type="text" name="notes" id="purchase_notes_input" class="form-control" placeholder="Ex: Chauffeur SABC M. Pierre, camion N° LT-..., emballages intacts..." value="<?= htmlspecialchars($flash_old['notes'] ?? '') ?>">
             </div>
 
-            <div style="margin-top: 25px; display: flex; gap: 12px;">
+            <div style="margin-top: 25px; display: flex; gap: 12px; flex-wrap: wrap;">
                 <button type="button" class="btn btn-accent" id="submit_purchase_btn" onclick="openPurchaseConfirmModal()" style="padding: 10px 24px; font-size: 1rem; font-weight: 700;">
                     <i class='bx bx-check-circle'></i> Vérifier & Enregistrer la Réception
+                </button>
+                <button type="button" class="btn" id="hold_purchase_btn" onclick="submitHoldPurchase()" style="padding: 10px 22px; font-size: 0.95rem; font-weight: 700; background: #D97706; color: #FFFFFF; border: none; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(217, 119, 6, 0.25); cursor: pointer;">
+                    <i class='bx bx-time-five'></i> Mettre en Attente (Prévisionnel)
                 </button>
                 <a href="<?= BASE_URL ?>/achats" class="btn btn-primary" style="background-color: var(--c-gray-600); padding: 10px 20px;">
                     <i class='bx bx-x'></i> Annuler
@@ -939,7 +943,50 @@ function closePurchaseConfirmModal() {
     document.getElementById("purchase_confirm_modal").style.display = "none";
 }
 
+function submitHoldPurchase() {
+    const suppSelect = document.getElementById("supplier_select");
+    if (!suppSelect || !suppSelect.value) {
+        alert("Veuillez sélectionner un fournisseur pour mettre cet approvisionnement en attente.");
+        if (suppSelect) suppSelect.focus();
+        return;
+    }
+
+    const rows = document.querySelectorAll("#purchase_tbody tr");
+    let hasValidItem = false;
+    rows.forEach(tr => {
+        const prodSelect = tr.querySelector('.pitem-product');
+        const qtyInput = tr.querySelector('.pitem-qty');
+        const rowId = tr.id ? tr.id.replace('prow_', '') : '';
+        const hasDemiChk = document.getElementById(`has_demi_${rowId}`);
+        const prodId = parseInt(prodSelect?.value) || 0;
+        const qty = parseFloat(qtyInput?.value) || 0;
+        const hasDemi = (hasDemiChk && hasDemiChk.checked) ? 1 : 0;
+        if (prodId > 0 && (qty > 0 || hasDemi)) {
+            hasValidItem = true;
+        }
+    });
+
+    if (!hasValidItem) {
+        alert("Veuillez ajouter au moins un produit avec une quantité valide pour mettre l'approvisionnement en attente.");
+        return;
+    }
+
+    // Reference is optional when putting on hold
+    const refInput = document.getElementById("invoice_ref_input");
+    if (refInput && !refInput.value.trim()) {
+        refInput.required = false;
+    }
+
+    if (confirm("Mettre ce bon d'approvisionnement en attente (Prévisionnel) ?\n\n- Aucun stock magasin ne sera incrémenté.\n- Aucun décaissement de caisse ni dette fournisseur ne sera comptabilisé.\n- Aucun casier vide ne sera déduit du stock.\n- Vous pourrez ajuster et valider ce bon dès l'arrivée physique du camion au dépôt.")) {
+        const actionInput = document.getElementById("purchase_action_type");
+        if (actionInput) actionInput.value = "hold";
+        document.getElementById("achats_multi_form").submit();
+    }
+}
+
 function submitFinalPurchase() {
+    const actionInput = document.getElementById("purchase_action_type");
+    if (actionInput) actionInput.value = "validate";
     document.getElementById("achats_multi_form").submit();
 }
 

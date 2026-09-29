@@ -10,6 +10,7 @@ class VentesController extends Controller {
     public function index() {
         $search = trim($_GET['search'] ?? '');
         $clientId = !empty($_GET['client_id']) ? intval($_GET['client_id']) : null;
+        $status = trim($_GET['status'] ?? 'all');
         $paymentMode = trim($_GET['payment_mode'] ?? 'all');
         $saleType = trim($_GET['sale_type'] ?? 'all');
         $cashAccountId = !empty($_GET['cash_account_id']) ? intval($_GET['cash_account_id']) : null;
@@ -33,16 +34,21 @@ class VentesController extends Controller {
         $countTotal = count($allSales);
         $countCash = 0;
         $countCredit = 0;
+        $countEnAttente = 0;
+        $totalEnAttente = 0;
         $globalTotal = 0;
 
         foreach ($allSales as $s) {
-            if ($s['status'] !== 'Cancelled') {
+            if ($s['status'] === 'Valid') {
                 $globalTotal += floatval($s['total_amount']);
-            }
-            if ($s['payment_method_id'] == 5) {
-                $countCredit++;
-            } else {
-                $countCash++;
+                if ($s['payment_method_id'] == 5) {
+                    $countCredit++;
+                } else {
+                    $countCash++;
+                }
+            } elseif ($s['status'] === 'En_Attente') {
+                $countEnAttente++;
+                $totalEnAttente += floatval($s['total_amount']);
             }
         }
 
@@ -50,6 +56,7 @@ class VentesController extends Controller {
         $filters = [
             'search' => $search,
             'client_id' => $clientId,
+            'status' => ($status !== 'all') ? $status : null,
             'payment_mode' => ($paymentMode !== 'all') ? $paymentMode : null,
             'sale_type' => ($saleType !== 'all') ? $saleType : null,
             'cash_account_id' => $cashAccountId,
@@ -60,7 +67,7 @@ class VentesController extends Controller {
 
         $filteredTotal = 0;
         foreach ($sales as $s) {
-            if ($s['status'] !== 'Cancelled') {
+            if ($s['status'] === 'Valid') {
                 $filteredTotal += floatval($s['total_amount']);
             }
         }
@@ -77,10 +84,13 @@ class VentesController extends Controller {
             'countTotal' => $countTotal,
             'countCash' => $countCash,
             'countCredit' => $countCredit,
+            'countEnAttente' => $countEnAttente,
+            'totalEnAttente' => $totalEnAttente,
             'globalTotal' => $globalTotal,
             'filteredTotal' => $filteredTotal,
             'filterSearch' => $search,
             'filterClientId' => $clientId,
+            'filterStatus' => $status,
             'filterPaymentMode' => $paymentMode,
             'filterSaleType' => $saleType,
             'filterCashAccountId' => $cashAccountId,
@@ -196,6 +206,9 @@ class VentesController extends Controller {
                     ];
                 }
 
+                $actionType = $_POST['action_type'] ?? ($_POST['submit_action'] ?? 'validate');
+                $isHold = ($actionType === 'hold');
+
                 $data = [
                     'sale_date' => !empty($_POST['sale_date']) ? $_POST['sale_date'] : date('Y-m-d'),
                     'client_id' => intval($_POST['client_id'] ?? 0),
@@ -210,12 +223,19 @@ class VentesController extends Controller {
                     'user_id' => $userId,
                     'tournee_id' => $tourneeId,
                     'sale_type' => $tourneeId ? 'route' : 'comptoir',
+                    'is_hold' => $isHold,
+                    'action_type' => $actionType,
                     'items' => $items
                 ];
 
                 $saleId = $this->model->add($data);
-                \App\Core\Helper::logAudit('CREATE', 'Ventes', $saleId, "Création de la facture de vente {$saleId} (" . ($data['settlement_type'] === 'credit' ? 'Crédit' : 'Comptant') . ")", null, $data);
-                $_SESSION['flash_success'] = "Vente " . $saleId . " enregistrée avec succès !";
+                if ($isHold) {
+                    \App\Core\Helper::logAudit('CREATE_HOLD', 'Ventes', $saleId, "Création bon de commande / commande en attente {$saleId}", null, $data);
+                    $_SESSION['flash_success'] = "Commande " . $saleId . " mise en attente avec succès ! Aucun mouvement de stock ou de caisse n'a été appliqué.";
+                } else {
+                    \App\Core\Helper::logAudit('CREATE', 'Ventes', $saleId, "Création de la facture de vente {$saleId} (" . ($data['settlement_type'] === 'credit' ? 'Crédit' : 'Comptant') . ")", null, $data);
+                    $_SESSION['flash_success'] = "Vente " . $saleId . " enregistrée avec succès !";
+                }
                 
                 if ($tourneeId) {
                     $this->redirect('tournees/details/' . $tourneeId);
@@ -228,6 +248,112 @@ class VentesController extends Controller {
                 $tourneeParam = !empty($_POST['tournee_id']) ? ('?tournee_id=' . intval($_POST['tournee_id'])) : '';
                 $this->redirect('ventes/form' . $tourneeParam);
             }
+        }
+    }
+
+    public function edit($id = null) {
+        if (!$id) {
+            $this->redirect('ventes');
+        }
+        $sale = $this->model->getSaleWithItems($id);
+        if (!$sale) {
+            $_SESSION['flash_error'] = "Facture introuvable.";
+            $this->redirect('ventes');
+        }
+        if ($sale['status'] !== 'En_Attente') {
+            $_SESSION['flash_error'] = "Cette vente ne peut plus être modifiée car elle est déjà " . ($sale['status'] === 'Valid' ? 'validée' : 'annulée') . ".";
+            $this->redirect('ventes/invoice/' . $id);
+        }
+
+        $this->view('pages/ventes/edit', [
+            'title' => 'Modifier Commande en Attente - ' . $sale['id'],
+            'active_menu' => 'ventes',
+            'sale' => $sale,
+            'clients' => $this->model->getClients(),
+            'products' => $this->model->getProducts(),
+            'cash_accounts' => $this->model->getCashAccountsWithBalances(),
+            'flash_error' => $_SESSION['ventes_edit_error'] ?? null
+        ]);
+        unset($_SESSION['ventes_edit_error']);
+    }
+
+    public function update($id = null) {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $id) {
+            try {
+                $userId = $_SESSION['user']['id'] ?? 1;
+                $actionType = $_POST['action_type'] ?? ($_POST['submit_action'] ?? 'update');
+
+                // Parse Multi-item Lines
+                $items = [];
+                if (!empty($_POST['items']) && is_array($_POST['items'])) {
+                    foreach ($_POST['items'] as $it) {
+                        $qty = floatval($it['quantity'] ?? 0);
+                        $hasDemi = !empty($it['has_demi']) ? 1 : 0;
+                        if (!empty($it['product_id']) && ($qty > 0 || $hasDemi)) {
+                            $items[] = [
+                                'product_id' => intval($it['product_id']),
+                                'format_type' => in_array($it['format_type'] ?? '', ['casier', 'demi', 'mixte']) ? $it['format_type'] : 'casier',
+                                'quantity' => $qty,
+                                'has_demi' => $hasDemi,
+                                'unit_price' => floatval($it['unit_price'] ?? 0),
+                                'demi_unit_price' => floatval($it['demi_unit_price'] ?? 0),
+                                'crates_returned' => isset($it['crates_returned']) ? intval($it['crates_returned']) : 0,
+                                'bottles_returned' => isset($it['bottles_returned']) ? intval($it['bottles_returned']) : 0,
+                                'update_catalog_price' => !empty($it['update_catalog_price'])
+                            ];
+                        }
+                    }
+                }
+
+                $data = [
+                    'sale_date' => !empty($_POST['sale_date']) ? $_POST['sale_date'] : date('Y-m-d'),
+                    'client_id' => intval($_POST['client_id'] ?? 0),
+                    'discount_amount' => floatval($_POST['discount_amount'] ?? 0),
+                    'avoir_used' => floatval($_POST['avoir_amount'] ?? ($_POST['avoir_used'] ?? 0)),
+                    'settlement_type' => $_POST['settlement_type'] ?? 'cash',
+                    'cash_account_id' => intval($_POST['cash_account_id'] ?? 0),
+                    'amount_paid' => isset($_POST['amount_paid']) ? floatval($_POST['amount_paid']) : null,
+                    'reference' => trim($_POST['reference'] ?? ''),
+                    'notes' => trim($_POST['notes'] ?? ''),
+                    'items' => $items
+                ];
+
+                if ($actionType === 'validate') {
+                    $this->model->updateHoldSale($id, $data, $userId);
+                    $this->model->validateHoldSale($id, $data, $userId);
+                    $_SESSION['flash_success'] = "Commande " . $id . " validée et encaissée avec succès ! Mouvements de stock et caisse enregistrés.";
+                    $this->redirect('ventes/invoice/' . $id);
+                } else {
+                    $this->model->updateHoldSale($id, $data, $userId);
+                    \App\Core\Helper::logAudit('UPDATE_HOLD', 'Ventes', $id, "Modification de la commande en attente {$id}", null, $data);
+                    $_SESSION['flash_success'] = "Commande en attente " . $id . " mise à jour avec succès.";
+                    $this->redirect('ventes/invoice/' . $id);
+                }
+            } catch (\Exception $e) {
+                $_SESSION['ventes_edit_error'] = $e->getMessage();
+                $this->redirect('ventes/edit/' . $id);
+            }
+        } else {
+            $this->redirect('ventes');
+        }
+    }
+
+    public function validateHold($id = null) {
+        if ($id) {
+            try {
+                $userId = $_SESSION['user']['id'] ?? 1;
+                $data = [
+                    'cash_account_id' => !empty($_POST['cash_account_id']) ? intval($_POST['cash_account_id']) : null,
+                    'amount_paid' => isset($_POST['amount_paid']) ? floatval($_POST['amount_paid']) : null
+                ];
+                $this->model->validateHoldSale($id, $data, $userId);
+                $_SESSION['flash_success'] = "Facture " . $id . " validée et encaissée avec succès !";
+            } catch (\Exception $e) {
+                $_SESSION['flash_error'] = "Erreur de validation : " . $e->getMessage();
+            }
+            $this->redirect('ventes/invoice/' . $id);
+        } else {
+            $this->redirect('ventes');
         }
     }
 
@@ -280,30 +406,40 @@ class VentesController extends Controller {
 
     public function cancel($id = null) {
         if ($id) {
-            // Admin only constraint
-            if (!\App\Core\Helper::isAdmin()) {
-                $_SESSION['flash_error'] = "Accès refusé : Seul l'administrateur est autorisé à annuler une vente.";
+            $saleBefore = $this->model->getSaleWithItems($id);
+            if (!$saleBefore) {
+                $_SESSION['flash_error'] = "Facture introuvable.";
+                $this->redirect('ventes');
+                return;
+            }
+
+            // If it is a validated invoice, require Admin role
+            if ($saleBefore['status'] === 'Valid' && !\App\Core\Helper::isAdmin()) {
+                $_SESSION['flash_error'] = "Accès refusé : Seul l'administrateur est autorisé à annuler une vente validée.";
                 $this->redirect('ventes');
                 return;
             }
 
             try {
-                $saleBefore = $this->model->getSaleWithItems($id);
                 $userId = $_SESSION['user']['id'] ?? 1;
-                $reason = trim($_POST['reason'] ?? ($_GET['reason'] ?? 'Annulation demandée par l\'administrateur'));
+                $reason = trim($_POST['reason'] ?? ($_GET['reason'] ?? ($saleBefore['status'] === 'En_Attente' ? 'Abandon de la commande en attente' : 'Annulation demandée par l\'administrateur')));
                 $this->model->cancelSale($id, $userId, $reason);
 
                 \App\Core\Helper::logAudit(
                     'CANCEL', 
                     'Ventes', 
                     $id, 
-                    "Annulation de la vente {$id} (Montant: " . number_format($saleBefore['total_amount'] ?? 0, 0, ',', ' ') . " FCFA, Client: " . ($saleBefore['client_name'] ?? '-') . ")", 
+                    "Annulation vente {$id} (Statut précédent: {$saleBefore['status']}, Montant: " . number_format($saleBefore['total_amount'] ?? 0, 0, ',', ' ') . " FCFA, Client: " . ($saleBefore['client_name'] ?? '-') . ")", 
                     $saleBefore, 
                     ['status' => 'Cancelled'], 
                     $reason
                 );
 
-                $_SESSION['flash_success'] = "Facture " . $id . " annulée : le stock a été réintégré et la caisse/crédit a été rééquilibré.";
+                if ($saleBefore['status'] === 'En_Attente') {
+                    $_SESSION['flash_success'] = "Commande en attente " . $id . " annulée.";
+                } else {
+                    $_SESSION['flash_success'] = "Facture " . $id . " annulée : le stock a été réintégré et la caisse/crédit a été rééquilibré.";
+                }
             } catch (\Exception $e) {
                 $_SESSION['flash_error'] = "Erreur lors de l'annulation : " . $e->getMessage();
             }

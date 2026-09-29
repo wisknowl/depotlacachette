@@ -17,8 +17,19 @@
         <i class='bx bx-arrow-back'></i> Retour au Journal des Ventes
     </a>
     <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <?php if ($sale['status'] === 'En_Attente'): ?>
+            <a href="<?= BASE_URL ?>/ventes/edit/<?= $sale['id'] ?>" class="btn btn-accent" style="padding: 8px 18px; font-weight: 800; background: #16A34A; border-color: #16A34A;">
+                <i class='bx bx-check-circle'></i> Vérifier & Valider Facture
+            </a>
+            <a href="<?= BASE_URL ?>/ventes/edit/<?= $sale['id'] ?>" class="btn btn-primary" style="background: #D97706; padding: 8px 16px; font-weight: 700;">
+                <i class='bx bx-edit'></i> Modifier Commande
+            </a>
+            <a href="<?= BASE_URL ?>/ventes/cancel/<?= $sale['id'] ?>" class="btn btn-primary" style="background: #EF4444; padding: 8px 14px;" onclick="return confirm('Abandonner la commande en attente <?= $sale['id'] ?> ?\n\nAucun mouvement comptable n\'avait été effectué.')">
+                <i class='bx bx-trash'></i> Abandonner
+            </a>
+        <?php endif; ?>
         <button onclick="window.print()" class="btn btn-accent" style="padding: 8px 18px; font-weight: 700;">
-            <i class='bx bx-printer'></i> Imprimer la Facture / Reçu
+            <i class='bx bx-printer'></i> <?= ($sale['status'] === 'En_Attente') ? 'Imprimer Bon de Commande' : 'Imprimer la Facture / Reçu' ?>
         </button>
         <a href="<?= BASE_URL ?>/ventes/en-detail" class="btn btn-primary" style="background: #059669;">
             <i class='bx bx-wine'></i> Vente Détail
@@ -45,12 +56,15 @@
         </div>
         <div style="text-align: right;">
             <?php 
+                $isHold = ($sale['status'] === 'En_Attente');
                 $isTourneeOpen = !empty($sale['tournee_id']) && (strtolower($sale['tournee_status'] ?? '') !== 'cloturee' || $sale['status'] === 'En_Route');
                 $isCancelled = ($sale['status'] === 'Cancelled');
             ?>
-            <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 800; margin-bottom: 8px; <?= $isCancelled ? 'background: #FEE2E2; color: #991B1B;' : ($isTourneeOpen ? 'background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;' : 'background: #DCFCE7; color: #166534;') ?>">
+            <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 800; margin-bottom: 8px; <?= $isCancelled ? 'background: #FEE2E2; color: #991B1B;' : ($isHold ? 'background: #FEF3C7; color: #92400E; border: 1.5px solid #FCD34D;' : ($isTourneeOpen ? 'background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;' : 'background: #DCFCE7; color: #166534;')) ?>">
                 <?php if ($isCancelled): ?>
                     ⛔ FACTURE ANNULÉE
+                <?php elseif ($isHold): ?>
+                    ⏳ BON DE COMMANDE / PROFORMA (EN ATTENTE)
                 <?php elseif ($isTourneeOpen): ?>
                     🟡 VENTE EN COURS DE TOURNÉE (<?= htmlspecialchars($sale['tournee_reference'] ?? '') ?> - Non clôturée)
                 <?php else: ?>
@@ -65,6 +79,28 @@
             </div>
         </div>
     </div>
+
+    <?php if ($isHold): ?>
+        <div style="background: #FFFBEB; border: 1.5px dashed #D97706; border-radius: 8px; padding: 12px 18px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px; color: #92400E;">
+                <i class='bx bx-time-five' style="font-size: 1.6rem; color: #D97706;"></i>
+                <div>
+                    <strong style="font-size: 0.95rem;">BON DE COMMANDE PRÉVISIONNEL — STOCKS & CAISSE EN ATTENTE</strong>
+                    <div style="font-size: 0.8rem; color: #B45309; margin-top: 2px;">
+                        Cette commande est gardée en attente. Aucun mouvement de stock magasin n'a été décompté et aucune entrée de caisse n'a été enregistrée dans les livres officiels.
+                    </div>
+                </div>
+            </div>
+            <div class="no-print" style="display: flex; gap: 8px;">
+                <a href="<?= BASE_URL ?>/ventes/edit/<?= $sale['id'] ?>" class="btn btn-sm btn-accent" style="background: #16A34A; border-color: #16A34A; font-weight: 700; padding: 6px 12px;">
+                    <i class='bx bx-check-double'></i> Contrôler & Valider
+                </a>
+                <a href="<?= BASE_URL ?>/ventes/edit/<?= $sale['id'] ?>" class="btn btn-sm btn-primary" style="background: #D97706; font-weight: 700; padding: 6px 12px;">
+                    <i class='bx bx-edit'></i> Modifier Lignes
+                </a>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <!-- CLIENT & PAYMENT INFO -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; background: #F8FAFC; border-radius: 8px; padding: 18px; margin-bottom: 25px;">

@@ -54,6 +54,12 @@
            style="padding: 5px 12px; font-size: 0.82rem; <?= ($filterPaymentMode !== 'credit') ? 'background: #FFFBEB; color: #D97706; border: 1px solid #FEF3C7;' : '' ?>">
             🟡 À Crédit / Créances (<?= $countCredit ?>)
         </a>
+
+        <a href="<?= BASE_URL ?>/ventes?status=En_Attente<?= !empty($filterSearch) ? '&search='.urlencode($filterSearch) : '' ?><?= !empty($filterClientId) ? '&client_id='.$filterClientId : '' ?><?= !empty($filterCashAccountId) ? '&cash_account_id='.$filterCashAccountId : '' ?>" 
+           class="btn <?= (($filterStatus ?? '') === 'En_Attente') ? 'btn-accent' : 'btn-primary' ?>" 
+           style="padding: 5px 12px; font-size: 0.82rem; <?= (($filterStatus ?? '') === 'En_Attente') ? 'background: #D97706; border-color: #D97706; color: white;' : 'background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;' ?>">
+            ⏳ En Attente (<?= $countEnAttente ?? 0 ?>)
+        </a>
     </div>
 
     <!-- MULTI-CRITERIA FILTER FORM -->
@@ -211,10 +217,11 @@
                         $isCredit = ($v['payment_method_id'] == 5); 
                         $isValid = ($v['status'] === 'Valid');
                         $isEnRoute = ($v['status'] === 'En_Route');
+                        $isHold = ($v['status'] === 'En_Attente');
                         $isCancelled = ($v['status'] === 'Cancelled');
                         $isRoute = ($v['sale_type'] === 'route');
                     ?>
-                    <tr style="<?= $isCancelled ? 'opacity: 0.65; background: #FFF5F5;' : ($isEnRoute ? 'background: #FFFDF5;' : '') ?>">
+                    <tr style="<?= $isCancelled ? 'opacity: 0.65; background: #FFF5F5;' : ($isHold ? 'background: #FFFBEB; border-left: 3px solid #D97706;' : ($isEnRoute ? 'background: #FFFDF5;' : '')) ?>">
                         <td>
                             <a href="<?= BASE_URL ?>/ventes/invoice/<?= $v['id'] ?>" style="font-weight: 800; color: var(--c-navy); text-decoration: none;">
                                 <?= htmlspecialchars($v['id']) ?>
@@ -248,7 +255,7 @@
                                 <?= intval($v['item_count']) ?> ligne(s) d'articles
                             </small>
                         </td>
-                        <td style="font-weight: 800; font-size: 1.05rem; color: <?= ($isValid || $isEnRoute) ? 'var(--c-success)' : '#991B1B' ?>;">
+                        <td style="font-weight: 800; font-size: 1.05rem; color: <?= $isValid ? 'var(--c-success)' : ($isHold ? '#D97706' : ($isEnRoute ? '#B45309' : '#991B1B')) ?>;">
                             <?= number_format($v['total_amount'], 0, ',', ' ') ?> FCFA
                         </td>
                         <td>
@@ -266,7 +273,11 @@
                             <?php 
                                 $isTourneeOpen = $isRoute && !empty($v['tournee_id']) && (strtolower($v['tournee_status'] ?? '') !== 'cloturee');
                             ?>
-                            <?php if ($isEnRoute || ($isValid && $isTourneeOpen)): ?>
+                            <?php if ($isHold): ?>
+                                <span style="padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 800; background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;" title="Commande en attente de vérification physique et encaissement">
+                                    ⏳ En Attente
+                                </span>
+                            <?php elseif ($isEnRoute || ($isValid && $isTourneeOpen)): ?>
                                 <span style="padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 800; background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;" title="Vente en cours de tournée : décharge non encore effectuée">
                                     🟡 En tournée
                                 </span>
@@ -282,10 +293,17 @@
                         </td>
                         <td style="text-align: center;">
                             <div style="display: flex; gap: 6px; justify-content: center;">
-                                <a href="<?= BASE_URL ?>/ventes/invoice/<?= $v['id'] ?>" class="btn btn-primary" style="padding: 4px 9px; font-size: 0.85rem;" title="Voir / Imprimer Facture">
+                                <a href="<?= BASE_URL ?>/ventes/invoice/<?= $v['id'] ?>" class="btn btn-primary" style="padding: 4px 9px; font-size: 0.85rem;" title="Voir / Imprimer <?= $isHold ? 'Bon de Commande' : 'Facture' ?>">
                                     <i class='bx bx-printer'></i>
                                 </a>
-                                <?php if ($isValid && \App\Core\Helper::isAdmin()): ?>
+                                <?php if ($isHold): ?>
+                                    <a href="<?= BASE_URL ?>/ventes/edit/<?= $v['id'] ?>" class="btn btn-primary" style="padding: 4px 9px; font-size: 0.85rem; background-color: #D97706;" title="Modifier / Ajuster la commande en attente">
+                                        <i class='bx bx-edit'></i>
+                                    </a>
+                                    <a href="<?= BASE_URL ?>/ventes/cancel/<?= $v['id'] ?>" class="btn btn-primary" style="padding: 4px 9px; font-size: 0.85rem; background-color: #EF4444;" onclick="return confirm('Abandonner la commande en attente <?= $v['id'] ?> ?\n\nAucun mouvement de stock ou caisse n\'avait été effectué.')" title="Abandonner / Annuler la commande">
+                                        <i class='bx bx-trash'></i>
+                                    </a>
+                                <?php elseif ($isValid && \App\Core\Helper::isAdmin()): ?>
                                     <?php 
                                         $isClosedTournee = !empty($v['tournee_id']) && in_array(strtolower($v['tournee_status'] ?? ''), ['cloturee', 'clôturée', 'closed']);
                                     ?>

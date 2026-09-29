@@ -79,6 +79,7 @@
 <?php endif; ?>
 
 <form action="<?= BASE_URL ?>/ventes/save" method="POST" id="ventes_multi_form">
+    <input type="hidden" name="action_type" id="sale_action_type" value="validate">
     <?php if (!empty($tournee_id)): ?>
         <input type="hidden" name="tournee_id" value="<?= intval($tournee_id) ?>">
         <input type="hidden" name="sale_type" value="route">
@@ -315,9 +316,12 @@
                 </div>
             </div>
 
-            <div style="margin-top: 25px; display: flex; gap: 12px;">
+            <div style="margin-top: 25px; display: flex; gap: 12px; flex-wrap: wrap;">
                 <button type="button" class="btn btn-accent" id="submit_sale_btn" onclick="openVenteConfirmModal()" style="padding: 10px 24px; font-size: 1rem; font-weight: 700;">
                     <i class='bx bx-check-circle'></i> Vérifier & Valider la Facture
+                </button>
+                <button type="button" class="btn" id="hold_sale_btn" onclick="submitHoldSale()" style="padding: 10px 22px; font-size: 0.95rem; font-weight: 700; background: #D97706; color: #FFFFFF; border: none; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(217, 119, 6, 0.25); cursor: pointer;">
+                    <i class='bx bx-time-five'></i> Mettre en Attente (Bon de Commande)
                 </button>
                 <a href="<?= BASE_URL ?>/ventes" class="btn btn-primary" style="background-color: var(--c-gray-600); padding: 10px 20px;">
                     <i class='bx bx-x'></i> Annuler
@@ -1534,7 +1538,44 @@ function closeVenteConfirmModal() {
     document.getElementById("vente_confirm_modal").style.display = "none";
 }
 
+function submitHoldSale() {
+    const clientSelect = document.getElementById("vente_client_select") || document.getElementById("client_id");
+    if (!clientSelect || !clientSelect.value) {
+        alert("Veuillez sélectionner un client pour mettre cette commande en attente.");
+        if (clientSelect) clientSelect.focus();
+        return;
+    }
+
+    const rows = document.querySelectorAll("#items_tbody tr");
+    let hasValidItem = false;
+    rows.forEach(tr => {
+        const prodSelect = tr.querySelector('.item-product');
+        const qtyInput = tr.querySelector('.item-qty');
+        const rowId = tr.id ? tr.id.replace('row_', '') : '';
+        const hasDemiChk = document.getElementById(`has_demi_${rowId}`);
+        const prodId = parseInt(prodSelect?.value) || 0;
+        const qty = parseFloat(qtyInput?.value) || 0;
+        const hasDemi = (hasDemiChk && hasDemiChk.checked) ? 1 : 0;
+        if (prodId > 0 && (qty > 0 || hasDemi)) {
+            hasValidItem = true;
+        }
+    });
+
+    if (!hasValidItem) {
+        alert("Veuillez ajouter au moins un produit avec une quantité valide pour mettre la commande en attente.");
+        return;
+    }
+
+    if (confirm("Mettre cette commande en attente (Bon de Commande / Proforma) ?\n\n- Aucun stock magasin ne sera décompté.\n- Aucun encaissement ni créance financière ne sera généré.\n- Aucune consigne d'emballage ne sera due.\n- Vous pourrez ajuster et valider la commande dès que le client et le chargement seront prêts.")) {
+        const actionInput = document.getElementById("sale_action_type");
+        if (actionInput) actionInput.value = "hold";
+        document.getElementById("ventes_multi_form").submit();
+    }
+}
+
 function submitFinalSale() {
+    const actionInput = document.getElementById("sale_action_type");
+    if (actionInput) actionInput.value = "validate";
     document.getElementById("ventes_multi_form").submit();
 }
 

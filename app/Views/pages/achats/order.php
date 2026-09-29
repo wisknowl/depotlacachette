@@ -16,9 +16,20 @@
     <a href="<?= BASE_URL ?>/achats" class="btn btn-primary" style="background: var(--c-gray-600);">
         <i class='bx bx-arrow-back'></i> Retour au Journal des Achats
     </a>
-    <div style="display: flex; gap: 10px;">
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <?php if ($purchase['status'] === 'En_Attente'): ?>
+            <a href="<?= BASE_URL ?>/achats/edit/<?= $purchase['id'] ?>" class="btn btn-accent" style="padding: 8px 18px; font-weight: 800; background: #16A34A; border-color: #16A34A;">
+                <i class='bx bx-check-circle'></i> Valider & Réceptionner le Stock
+            </a>
+            <a href="<?= BASE_URL ?>/achats/edit/<?= $purchase['id'] ?>" class="btn btn-primary" style="background: #D97706; padding: 8px 16px; font-weight: 700;">
+                <i class='bx bx-edit'></i> Modifier Approvisionnement
+            </a>
+            <a href="<?= BASE_URL ?>/achats/cancel/<?= $purchase['id'] ?>" class="btn btn-primary" style="background: #EF4444; padding: 8px 14px;" onclick="return confirm('Abandonner la commande d\'achat en attente <?= $purchase['id'] ?> ?\n\nAucun mouvement comptable n\'avait été effectué.')">
+                <i class='bx bx-trash'></i> Abandonner
+            </a>
+        <?php endif; ?>
         <button onclick="window.print()" class="btn btn-accent" style="padding: 8px 18px; font-weight: 700;">
-            <i class='bx bx-printer'></i> Imprimer le Bon de Réception
+            <i class='bx bx-printer'></i> <?= ($purchase['status'] === 'En_Attente') ? 'Imprimer Bon Prévisionnel' : 'Imprimer le Bon de Réception' ?>
         </button>
         <a href="<?= BASE_URL ?>/achats/form" class="btn btn-primary">
             <i class='bx bx-plus'></i> Nouvel Achat
@@ -41,8 +52,12 @@
             </div>
         </div>
         <div style="text-align: right;">
-            <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 800; background: <?= $purchase['status'] === 'Valid' ? '#DCFCE7; color: #166534;' : '#FEE2E2; color: #991B1B;' ?> margin-bottom: 8px;">
-                <?= $purchase['status'] === 'Valid' ? '✓ BON VALIDÉ' : '⛔ BON ANNULÉ' ?>
+            <?php 
+                $isHold = ($purchase['status'] === 'En_Attente');
+                $isCancelled = ($purchase['status'] === 'Cancelled');
+            ?>
+            <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 800; margin-bottom: 8px; <?= $isCancelled ? 'background: #FEE2E2; color: #991B1B;' : ($isHold ? 'background: #FEF3C7; color: #92400E; border: 1.5px solid #FCD34D;' : 'background: #DCFCE7; color: #166534;') ?>">
+                <?= $isCancelled ? '⛔ BON ANNULÉ' : ($isHold ? '⏳ APPROVISIONNEMENT PRÉVISIONNEL (EN ATTENTE)' : '✓ BON DE RÉCEPTION VALIDÉ') ?>
             </div>
             <div style="font-size: 1.3rem; font-weight: 800; color: var(--c-navy-dark);">
                 <?= htmlspecialchars($purchase['id']) ?>
@@ -52,6 +67,28 @@
             </div>
         </div>
     </div>
+
+    <?php if ($isHold): ?>
+        <div style="background: #FFFBEB; border: 1.5px dashed #D97706; border-radius: 8px; padding: 12px 18px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px; color: #92400E;">
+                <i class='bx bx-time-five' style="font-size: 1.6rem; color: #D97706;"></i>
+                <div>
+                    <strong style="font-size: 0.95rem;">BON D'APPROVISIONNEMENT PRÉVISIONNEL — MARCHANDISES NON ENCAISSÉES</strong>
+                    <div style="font-size: 0.8rem; color: #B45309; margin-top: 2px;">
+                        Cet achat est gardé en attente. Le stock physique n'a pas encore été incrémenté au magasin et aucune sortie de caisse n'a été comptabilisée.
+                    </div>
+                </div>
+            </div>
+            <div class="no-print" style="display: flex; gap: 8px;">
+                <a href="<?= BASE_URL ?>/achats/edit/<?= $purchase['id'] ?>" class="btn btn-sm btn-accent" style="background: #16A34A; border-color: #16A34A; font-weight: 700; padding: 6px 12px;">
+                    <i class='bx bx-check-double'></i> Contrôler & Valider
+                </a>
+                <a href="<?= BASE_URL ?>/achats/edit/<?= $purchase['id'] ?>" class="btn btn-sm btn-primary" style="background: #D97706; font-weight: 700; padding: 6px 12px;">
+                    <i class='bx bx-edit'></i> Modifier Lignes
+                </a>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <!-- SUPPLIER & PAYMENT INFO -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; background: #F8FAFC; border-radius: 8px; padding: 18px; margin-bottom: 25px; border: 1px solid #E2E8F0;">

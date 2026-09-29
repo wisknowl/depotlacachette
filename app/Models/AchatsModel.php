@@ -63,6 +63,10 @@ class AchatsModel {
             $sql .= " AND a.purchase_date <= ?";
             $params[] = $filters['end_date'];
         }
+        if (!empty($filters['status'])) {
+            $sql .= " AND a.status = ?";
+            $params[] = $filters['status'];
+        }
 
         $sql .= "
             GROUP BY a.id, a.purchase_date, a.supplier_invoice_date, a.supplier_id, a.total_amount, a.payment_method_id, a.cash_account_id, a.reference, a.notes, a.user_id, a.status, a.created_at, s.name, pm.name, pm.type, ca.name, u.username
@@ -291,15 +295,20 @@ class AchatsModel {
             }
         }
 
-        foreach ($emptiesByPkg as $pkgId => $totalReturned) {
-            if ($totalReturned > 0) {
-                $stmtCheck = $this->db->prepare("SELECT es.empty_crates, pt.name FROM emballage_stock es JOIN packaging_types pt ON es.packaging_type_id = pt.id WHERE es.packaging_type_id = ?");
-                $stmtCheck->execute([$pkgId]);
-                $curEmb = $stmtCheck->fetch();
-                $avail = intval($curEmb['empty_crates'] ?? 0);
-                if ($totalReturned > $avail) {
-                    $pkgName = $curEmb['name'] ?? "Modèle #$pkgId";
-                    throw new \Exception("Stock d'emballages insuffisant pour '{$pkgName}' : Vous tentez de remettre {$totalReturned} casier(s) vide(s) au camion alors que le dépôt n'en possède que {$avail} en stock.");
+        $isHold = !empty($data['is_hold']) || (($data['action_type'] ?? '') === 'hold') || (($data['status'] ?? '') === 'En_Attente');
+        $status = $isHold ? 'En_Attente' : 'Valid';
+
+        if (!$isHold) {
+            foreach ($emptiesByPkg as $pkgId => $totalReturned) {
+                if ($totalReturned > 0) {
+                    $stmtCheck = $this->db->prepare("SELECT es.empty_crates, pt.name FROM emballage_stock es JOIN packaging_types pt ON es.packaging_type_id = pt.id WHERE es.packaging_type_id = ?");
+                    $stmtCheck->execute([$pkgId]);
+                    $curEmb = $stmtCheck->fetch();
+                    $avail = intval($curEmb['empty_crates'] ?? 0);
+                    if ($totalReturned > $avail) {
+                        $pkgName = $curEmb['name'] ?? "Modèle #$pkgId";
+                        throw new \Exception("Stock d'emballages insuffisant pour '{$pkgName}' : Vous tentez de remettre {$totalReturned} casier(s) vide(s) au camion alors que le dépôt n'en possède que {$avail} en stock.");
+                    }
                 }
             }
         }
@@ -318,15 +327,21 @@ class AchatsModel {
 
         if (!$isCredit) {
             $cashAccountId = intval($data['cash_account_id'] ?? 0);
-            $accountInfo = $this->getCashAccount($cashAccountId);
-            if (!$accountInfo) {
+            if ($cashAccountId > 0) {
+                $accountInfo = $this->getCashAccount($cashAccountId);
+                if (!$accountInfo && !$isHold) {
+                    throw new \Exception("Veuillez sélectionner un compte de décaissement (caisse) valide pour un achat au comptant.");
+                }
+                if ($accountInfo && !$isHold) {
+                    $currentBalance = floatval($accountInfo['current_balance']);
+                    if ($totalAmount > $currentBalance) {
+                        throw new \Exception("Solde insuffisant dans " . htmlspecialchars($accountInfo['name']) . " (Solde disponible : " . number_format($currentBalance, 0, ',', ' ') . " FCFA, Total achat : " . number_format($totalAmount, 0, ',', ' ') . " FCFA).");
+                    }
+                }
+                $paymentMethodId = $accountInfo ? ($accountInfo['payment_method_id'] ?: 1) : 1;
+            } elseif (!$isHold) {
                 throw new \Exception("Veuillez sélectionner un compte de décaissement (caisse) valide pour un achat au comptant.");
             }
-            $currentBalance = floatval($accountInfo['current_balance']);
-            if ($totalAmount > $currentBalance) {
-                throw new \Exception("Solde insuffisant dans " . htmlspecialchars($accountInfo['name']) . " (Solde disponible : " . number_format($currentBalance, 0, ',', ' ') . " FCFA, Total achat : " . number_format($totalAmount, 0, ',', ' ') . " FCFA).");
-            }
-            $paymentMethodId = $accountInfo['payment_method_id'] ?: 1;
         }
 
         $id = $this->generatePurchaseId();
@@ -337,7 +352,7 @@ class AchatsModel {
             // 1. Insert Purchases Header
             $stmt = $this->db->prepare("
                 INSERT INTO purchases (id, purchase_date, supplier_invoice_date, supplier_id, total_amount, additional_fees, total_emballage_amount, payment_method_id, cash_account_id, reference, notes, user_id, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Valid')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $id,
@@ -351,10 +366,11 @@ class AchatsModel {
                 $cashAccountId,
                 $data['reference'] ?: $id,
                 $data['notes'] ?? '',
-                $userId
+                $userId,
+                $status
             ]);
 
-            // 2. Insert Purchase Items and Stock Movements (Entrée Stock)
+            // 2. Insert Purchase Items
             $stmtItem = $this->db->prepare("
                 INSERT INTO purchase_items (purchase_id, product_id, format_type, has_demi, quantity, unit_price, demi_unit_price, is_returnable, empties_returned, emballage_cost, emballage_total, ristourne_unit, total_ristourne, total_price, stock_equivalent)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -384,79 +400,82 @@ class AchatsModel {
                     $item['stock_equivalent']
                 ]);
 
-                $stmtStock->execute([
-                    $data['purchase_date'],
-                    $item['product_id'],
-                    $item['format_id'],
-                    $item['format_type'],
-                    $id,
-                    $item['quantity'],
-                    $item['stock_equivalent'],
-                    $item['unit_price'],
-                    'Achat ' . $id,
-                    $userId
-                ]);
+                // Ledger effects occur ONLY if purchase is NOT on hold
+                if (!$isHold) {
+                    $stmtStock->execute([
+                        $data['purchase_date'],
+                        $item['product_id'],
+                        $item['format_id'],
+                        $item['format_type'],
+                        $id,
+                        $item['quantity'],
+                        $item['stock_equivalent'],
+                        $item['unit_price'],
+                        'Achat ' . $id,
+                        $userId
+                    ]);
 
-                // Update product catalog purchase price to the latest supplier invoice price
-                $latestFullPrice = ($item['unit_price'] > 0) ? $item['unit_price'] : ($item['demi_unit_price'] * 2);
-                $stmtUpdateCost = $this->db->prepare("UPDATE products SET purchase_price = ? WHERE id = ?");
-                $stmtUpdateCost->execute([$latestFullPrice, $item['product_id']]);
+                    // Update product catalog purchase price to the latest supplier invoice price
+                    $latestFullPrice = ($item['unit_price'] > 0) ? $item['unit_price'] : ($item['demi_unit_price'] * 2);
+                    $stmtUpdateCost = $this->db->prepare("UPDATE products SET purchase_price = ? WHERE id = ?");
+                    $stmtUpdateCost->execute([$latestFullPrice, $item['product_id']]);
 
-                // Emballage handling
-                if ($item['is_returnable'] && !empty($item['packaging_type_id'])) {
-                    $pkgTypeId = intval($item['packaging_type_id']);
-                    $cratesHandedOver = intval($item['empties_returned']);
-                    $missingCrates = max(0, intval($item['quantity']) - $cratesHandedOver);
+                    // Emballage handling
+                    if ($item['is_returnable'] && !empty($item['packaging_type_id'])) {
+                        $pkgTypeId = intval($item['packaging_type_id']);
+                        $cratesHandedOver = intval($item['empties_returned']);
+                        $missingCrates = max(0, intval($item['quantity']) - $cratesHandedOver);
 
-                    // If empty crates were given to the truck: deduct from depot empty stock & log movement
-                    if ($cratesHandedOver > 0) {
-                        $this->db->prepare("
-                            UPDATE emballage_stock 
-                            SET empty_crates = GREATEST(0, empty_crates - ?) 
-                            WHERE packaging_type_id = ?
-                        ")->execute([$cratesHandedOver, $pkgTypeId]);
+                        // If empty crates were given to the truck: deduct from depot empty stock & log movement
+                        if ($cratesHandedOver > 0) {
+                            $this->db->prepare("
+                                UPDATE emballage_stock 
+                                SET empty_crates = GREATEST(0, empty_crates - ?) 
+                                WHERE packaging_type_id = ?
+                            ")->execute([$cratesHandedOver, $pkgTypeId]);
 
-                        $this->db->prepare("
-                            INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, supplier_id, crates_out, notes, created_by)
-                            VALUES (?, 'Purchase_Drink', ?, ?, ?, ?, ?)
-                        ")->execute([
-                            $pkgTypeId,
-                            $id,
-                            $data['supplier_id'],
-                            $cratesHandedOver,
-                            "Casiers vides remis au camion (Achat $id)",
-                            $userId
-                        ]);
-                    }
+                            $this->db->prepare("
+                                INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, supplier_id, crates_out, notes, created_by)
+                                VALUES (?, 'Purchase_Drink', ?, ?, ?, ?, ?)
+                            ")->execute([
+                                $pkgTypeId,
+                                $id,
+                                $data['supplier_id'],
+                                $cratesHandedOver,
+                                "Casiers vides remis au camion (Achat $id)",
+                                $userId
+                            ]);
+                        }
 
-                    // If missing crates were charged on invoice (bought as extra packaging):
-                    if ($missingCrates > 0 && $item['emballage_total'] > 0) {
-                        $this->db->prepare("
-                            INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, supplier_id, crates_in, unit_cost, total_cost, notes, created_by)
-                            VALUES (?, 'Purchase_Empty', ?, ?, ?, ?, ?, ?, ?)
-                        ")->execute([
-                            $pkgTypeId,
-                            $id,
-                            $data['supplier_id'],
-                            $missingCrates,
-                            $item['emballage_cost'],
-                            $item['emballage_total'],
-                            "Consigne/Achat casiers déficitaires (Achat $id)",
-                            $userId
-                        ]);
-                    } elseif ($missingCrates > 0 && $item['emballage_total'] == 0) {
-                        // Unpaid packaging deficit -> record supplier packaging debt
-                        $this->db->prepare("
-                            INSERT INTO supplier_emballage_debts (supplier_id, packaging_type_id, crates_due)
-                            VALUES (?, ?, ?)
-                            ON DUPLICATE KEY UPDATE crates_due = crates_due + VALUES(crates_due)
-                        ")->execute([$data['supplier_id'], $pkgTypeId, $missingCrates]);
+                        // If missing crates were charged on invoice (bought as extra packaging):
+                        if ($missingCrates > 0 && $item['emballage_total'] > 0) {
+                            $this->db->prepare("
+                                INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, supplier_id, crates_in, unit_cost, total_cost, notes, created_by)
+                                VALUES (?, 'Purchase_Empty', ?, ?, ?, ?, ?, ?, ?)
+                            ")->execute([
+                                $pkgTypeId,
+                                $id,
+                                $data['supplier_id'],
+                                $missingCrates,
+                                $item['emballage_cost'],
+                                $item['emballage_total'],
+                                "Consigne/Achat casiers déficitaires (Achat $id)",
+                                $userId
+                            ]);
+                        } elseif ($missingCrates > 0 && $item['emballage_total'] == 0) {
+                            // Unpaid packaging deficit -> record supplier packaging debt
+                            $this->db->prepare("
+                                INSERT INTO supplier_emballage_debts (supplier_id, packaging_type_id, crates_due)
+                                VALUES (?, ?, ?)
+                                ON DUPLICATE KEY UPDATE crates_due = crates_due + VALUES(crates_due)
+                            ")->execute([$data['supplier_id'], $pkgTypeId, $missingCrates]);
+                        }
                     }
                 }
             }
 
-            // 3. Log into cash_transactions ONLY if Cash Purchase
-            if (!$isCredit && $cashAccountId) {
+            // 3. Log into cash_transactions ONLY if Cash Purchase AND NOT on hold
+            if (!$isHold && !$isCredit && $cashAccountId) {
                 $stmtCash = $this->db->prepare("
                     INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id)
                     VALUES (?, 'Purchase', ?, ?, ?, 0.00, ?, ?)
@@ -480,6 +499,338 @@ class AchatsModel {
     }
 
     /**
+     * Update an On-Hold Purchase
+     */
+    public function updateHoldPurchase($id, $data, $userId = 1) {
+        $purchase = $this->getPurchaseWithItems($id);
+        if (!$purchase) {
+            throw new \Exception("Bon d'achat introuvable.");
+        }
+        if ($purchase['status'] !== 'En_Attente') {
+            throw new \Exception("Seuls les bons d'approvisionnement en attente peuvent être modifiés directement.");
+        }
+
+        $rawItems = $data['items'] ?? [];
+        if (empty($rawItems)) {
+            throw new \Exception("Veuillez ajouter au moins un produit au bon d'achat.");
+        }
+
+        $processedItems = [];
+        $totalAmount = 0;
+        $totalEmballageAmount = 0;
+
+        foreach ($rawItems as $idx => $item) {
+            $prodId = intval($item['product_id'] ?? 0);
+            $qty = floatval($item['quantity'] ?? 0);
+            $hasDemi = !empty($item['has_demi']) ? 1 : 0;
+            $unitPrice = floatval($item['unit_price'] ?? 0);
+            $demiUnitPrice = floatval($item['demi_unit_price'] ?? ($unitPrice / 2));
+
+            if ($prodId <= 0) continue;
+            if ($qty <= 0 && !$hasDemi) {
+                throw new \Exception("La quantité approvisionnée à la ligne " . ($idx + 1) . " doit être supérieure à 0.");
+            }
+            if ($unitPrice <= 0 && $demiUnitPrice <= 0) {
+                throw new \Exception("Le prix d'achat unitaire à la ligne " . ($idx + 1) . " doit être supérieur à 0 FCFA.");
+            }
+
+            $prodStmt = $this->db->prepare("SELECT * FROM products WHERE id = ?");
+            $prodStmt->execute([$prodId]);
+            $product = $prodStmt->fetch();
+            if (!$product) {
+                throw new \Exception("Article à la ligne " . ($idx + 1) . " introuvable.");
+            }
+
+            $isReturnable = intval($product['is_returnable'] ?? 1);
+            $emptiesReturned = $isReturnable ? (isset($item['empties_returned']) ? intval($item['empties_returned']) : 0) : 0;
+            $emballageCost = $isReturnable ? (isset($item['emballage_cost']) ? floatval($item['emballage_cost']) : floatval($product['cout_emballage'] ?? 3600)) : 0.00;
+            $deficitCrates = max(0, intval($qty) - $emptiesReturned);
+            $packagingMode = $item['packaging_mode'] ?? 'charge';
+            $emballageTotal = ($isReturnable && $deficitCrates > 0 && $packagingMode === 'charge') ? ($deficitCrates * $emballageCost) : 0.00;
+
+            $stockEquivalent = $qty + ($hasDemi ? 0.5 : 0.0);
+            $drinkTotal = ($qty * $unitPrice) + ($hasDemi ? $demiUnitPrice : 0.0);
+            $lineTotal = $drinkTotal + $emballageTotal;
+            $ristourneUnit = floatval($item['ristourne_unit'] ?? 0);
+            $totalRistourne = ($qty + ($hasDemi ? 0.5 : 0.0)) * $ristourneUnit;
+            $totalAmount += $lineTotal;
+            $totalEmballageAmount += $emballageTotal;
+
+            $formatType = ($qty == 0 && $hasDemi) ? 'demi' : 'casier';
+
+            $processedItems[] = [
+                'product_id' => $product['id'],
+                'packaging_type_id' => $product['packaging_type_id'],
+                'format_id' => $product['format_id'],
+                'format_type' => $formatType,
+                'has_demi' => $hasDemi,
+                'is_returnable' => $isReturnable,
+                'empties_returned' => $emptiesReturned,
+                'emballage_cost' => $emballageCost,
+                'emballage_total' => $emballageTotal,
+                'quantity' => $qty,
+                'unit_price' => $unitPrice,
+                'demi_unit_price' => $demiUnitPrice,
+                'ristourne_unit' => $ristourneUnit,
+                'total_ristourne' => $totalRistourne,
+                'total_price' => $lineTotal,
+                'stock_equivalent' => $stockEquivalent
+            ];
+        }
+
+        if (empty($processedItems)) {
+            throw new \Exception("Aucun article valide dans le bon d'achat.");
+        }
+
+        $additionalFees = floatval($data['additional_fees'] ?? 0);
+        $totalAmount += $additionalFees;
+
+        $isCredit = (($data['settlement_type'] ?? '') === 'credit' || (isset($data['payment_method_id']) && $data['payment_method_id'] == 5));
+        $paymentMethodId = $isCredit ? 5 : intval($data['payment_method_id'] ?? 1);
+        $cashAccountId = !$isCredit && !empty($data['cash_account_id']) ? intval($data['cash_account_id']) : null;
+
+        $this->db->beginTransaction();
+        try {
+            // Update purchase header
+            $stmt = $this->db->prepare("
+                UPDATE purchases 
+                SET purchase_date = ?,
+                    supplier_invoice_date = ?,
+                    supplier_id = ?,
+                    total_amount = ?,
+                    additional_fees = ?,
+                    total_emballage_amount = ?,
+                    payment_method_id = ?,
+                    cash_account_id = ?,
+                    reference = ?,
+                    notes = ?
+                WHERE id = ? AND status = 'En_Attente'
+            ");
+            $stmt->execute([
+                $data['purchase_date'] ?? $purchase['purchase_date'],
+                !empty($data['supplier_invoice_date']) ? $data['supplier_invoice_date'] : ($data['purchase_date'] ?? $purchase['purchase_date']),
+                $data['supplier_id'] ?? $purchase['supplier_id'],
+                $totalAmount,
+                $additionalFees,
+                $totalEmballageAmount,
+                $paymentMethodId,
+                $cashAccountId,
+                $data['reference'] ?? $purchase['reference'],
+                $data['notes'] ?? $purchase['notes'],
+                $id
+            ]);
+
+            // Replace items
+            $this->db->prepare("DELETE FROM purchase_items WHERE purchase_id = ?")->execute([$id]);
+
+            $stmtItem = $this->db->prepare("
+                INSERT INTO purchase_items (purchase_id, product_id, format_type, has_demi, quantity, unit_price, demi_unit_price, is_returnable, empties_returned, emballage_cost, emballage_total, ristourne_unit, total_ristourne, total_price, stock_equivalent)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            foreach ($processedItems as $item) {
+                $stmtItem->execute([
+                    $id,
+                    $item['product_id'],
+                    $item['format_type'],
+                    $item['has_demi'],
+                    $item['quantity'],
+                    $item['unit_price'],
+                    $item['demi_unit_price'],
+                    $item['is_returnable'],
+                    $item['empties_returned'],
+                    $item['emballage_cost'],
+                    $item['emballage_total'],
+                    $item['ristourne_unit'],
+                    $item['total_ristourne'],
+                    $item['total_price'],
+                    $item['stock_equivalent']
+                ]);
+            }
+
+            $this->db->commit();
+            return true;
+        } catch (\Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Validate an On-Hold Purchase (Execute All Real-World Ledger Movements)
+     */
+    public function validateHoldPurchase($id, $data = [], $userId = 1) {
+        $purchase = $this->getPurchaseWithItems($id);
+        if (!$purchase) {
+            throw new \Exception("Bon d'achat introuvable.");
+        }
+        if ($purchase['status'] !== 'En_Attente') {
+            throw new \Exception("Ce bon d'achat n'est pas en attente de validation (Statut actuel: {$purchase['status']}).");
+        }
+
+        // If updated items are passed, update them first
+        if (!empty($data['items'])) {
+            $this->updateHoldPurchase($id, $data, $userId);
+            $purchase = $this->getPurchaseWithItems($id);
+        }
+
+        $supplierId = $purchase['supplier_id'];
+        $suppStmt = $this->db->prepare("SELECT name FROM suppliers WHERE id = ?");
+        $suppStmt->execute([$supplierId]);
+        $supplierName = $suppStmt->fetchColumn() ?: 'Fournisseur';
+
+        $totalAmount = floatval($purchase['total_amount']);
+        $isCredit = ($purchase['payment_method_id'] == 5);
+        $cashAccountId = !empty($data['cash_account_id']) ? intval($data['cash_account_id']) : (!empty($purchase['cash_account_id']) ? intval($purchase['cash_account_id']) : null);
+
+        // If cash purchase, verify cash account and balance
+        if (!$isCredit) {
+            if (!$cashAccountId) {
+                throw new \Exception("Veuillez sélectionner un compte de décaissement (caisse) valide pour valider cet achat au comptant.");
+            }
+            $accountInfo = $this->getCashAccount($cashAccountId);
+            if (!$accountInfo) {
+                throw new \Exception("Compte de caisse introuvable.");
+            }
+            $currentBalance = floatval($accountInfo['current_balance']);
+            if ($totalAmount > $currentBalance) {
+                throw new \Exception("Solde insuffisant dans " . htmlspecialchars($accountInfo['name']) . " (Solde disponible : " . number_format($currentBalance, 0, ',', ' ') . " FCFA, Total achat : " . number_format($totalAmount, 0, ',', ' ') . " FCFA).");
+            }
+        }
+
+        // Verify empty crates stock availability in depot
+        $emptiesByPkg = [];
+        foreach ($purchase['items'] as $it) {
+            if (!empty($it['is_returnable']) && !empty($it['packaging_type_id'])) {
+                $pkgId = intval($it['packaging_type_id']);
+                $emptiesByPkg[$pkgId] = ($emptiesByPkg[$pkgId] ?? 0) + intval($it['empties_returned']);
+            }
+        }
+
+        foreach ($emptiesByPkg as $pkgId => $totalReturned) {
+            if ($totalReturned > 0) {
+                $stmtCheck = $this->db->prepare("SELECT es.empty_crates, pt.name FROM emballage_stock es JOIN packaging_types pt ON es.packaging_type_id = pt.id WHERE es.packaging_type_id = ?");
+                $stmtCheck->execute([$pkgId]);
+                $curEmb = $stmtCheck->fetch();
+                $avail = intval($curEmb['empty_crates'] ?? 0);
+                if ($totalReturned > $avail) {
+                    $pkgName = $curEmb['name'] ?? "Modèle #$pkgId";
+                    throw new \Exception("Stock d'emballages insuffisant pour '{$pkgName}' : Vous tentez de remettre {$totalReturned} casier(s) vide(s) au camion alors que le dépôt n'en possède que {$avail} en stock.");
+                }
+            }
+        }
+
+        $this->db->beginTransaction();
+        try {
+            // 1. Mark status as Valid
+            $stmtUpdateStatus = $this->db->prepare("
+                UPDATE purchases 
+                SET status = 'Valid',
+                    cash_account_id = ?,
+                    notes = CONCAT(COALESCE(notes, ''), ' [Validé le ', NOW(), ']')
+                WHERE id = ? AND status = 'En_Attente'
+            ");
+            $stmtUpdateStatus->execute([$cashAccountId, $id]);
+
+            // 2. Insert Stock Movements (Entrée Stock)
+            $stmtStock = $this->db->prepare("
+                INSERT INTO stock_movements (movement_date, product_id, format_id, format_type, movement_type_id, source_type, source_id, quantity, stock_equivalent, unit_price, reference, user_id)
+                VALUES (?, ?, ?, ?, 1, 'Purchase', ?, ?, ?, ?, ?, ?)
+            ");
+
+            foreach ($purchase['items'] as $item) {
+                $stmtStock->execute([
+                    $purchase['purchase_date'],
+                    $item['product_id'],
+                    $item['format_id'] ?? 1,
+                    $item['format_type'] ?? 'casier',
+                    $id,
+                    $item['quantity'],
+                    $item['stock_equivalent'],
+                    $item['unit_price'],
+                    'Achat ' . $id,
+                    $userId
+                ]);
+
+                // Update catalog purchase price
+                $latestFullPrice = ($item['unit_price'] > 0) ? $item['unit_price'] : ($item['demi_unit_price'] * 2);
+                $stmtUpdateCost = $this->db->prepare("UPDATE products SET purchase_price = ? WHERE id = ?");
+                $stmtUpdateCost->execute([$latestFullPrice, $item['product_id']]);
+
+                // Packaging handling
+                if ($item['is_returnable'] && !empty($item['packaging_type_id'])) {
+                    $pkgTypeId = intval($item['packaging_type_id']);
+                    $cratesHandedOver = intval($item['empties_returned']);
+                    $missingCrates = max(0, intval($item['quantity']) - $cratesHandedOver);
+
+                    if ($cratesHandedOver > 0) {
+                        $this->db->prepare("
+                            UPDATE emballage_stock 
+                            SET empty_crates = GREATEST(0, empty_crates - ?) 
+                            WHERE packaging_type_id = ?
+                        ")->execute([$cratesHandedOver, $pkgTypeId]);
+
+                        $this->db->prepare("
+                            INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, supplier_id, crates_out, notes, created_by)
+                            VALUES (?, 'Purchase_Drink', ?, ?, ?, ?, ?)
+                        ")->execute([
+                            $pkgTypeId,
+                            $id,
+                            $supplierId,
+                            $cratesHandedOver,
+                            "Casiers vides remis au camion (Achat $id)",
+                            $userId
+                        ]);
+                    }
+
+                    if ($missingCrates > 0 && $item['emballage_total'] > 0) {
+                        $this->db->prepare("
+                            INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, supplier_id, crates_in, unit_cost, total_cost, notes, created_by)
+                            VALUES (?, 'Purchase_Empty', ?, ?, ?, ?, ?, ?, ?)
+                        ")->execute([
+                            $pkgTypeId,
+                            $id,
+                            $supplierId,
+                            $missingCrates,
+                            $item['emballage_cost'],
+                            $item['emballage_total'],
+                            "Consigne/Achat casiers déficitaires (Achat $id)",
+                            $userId
+                        ]);
+                    } elseif ($missingCrates > 0 && $item['emballage_total'] == 0) {
+                        $this->db->prepare("
+                            INSERT INTO supplier_emballage_debts (supplier_id, packaging_type_id, crates_due)
+                            VALUES (?, ?, ?)
+                            ON DUPLICATE KEY UPDATE crates_due = crates_due + VALUES(crates_due)
+                        ")->execute([$supplierId, $pkgTypeId, $missingCrates]);
+                    }
+                }
+            }
+
+            // 3. Cash Transaction if Cash
+            if (!$isCredit && $cashAccountId) {
+                $stmtCash = $this->db->prepare("
+                    INSERT INTO cash_transactions (transaction_date, transaction_type, source_id, description, cash_account_id, amount_in, amount_out, user_id)
+                    VALUES (?, 'Purchase', ?, ?, ?, 0.00, ?, ?)
+                ");
+                $stmtCash->execute([
+                    $purchase['purchase_date'] . ' ' . date('H:i:s'),
+                    $id,
+                    'Achat Comptant ' . $id . ' (' . $supplierName . ')',
+                    $cashAccountId,
+                    $totalAmount,
+                    $userId
+                ]);
+            }
+
+            $this->db->commit();
+            return true;
+        } catch (\Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * Audit-Compliant Cancellation of a Purchase
      */
     public function cancelPurchase($id, $userId = 1, $reason = '') {
@@ -493,6 +844,15 @@ class AchatsModel {
 
         $this->db->beginTransaction();
         try {
+            // If the purchase was only En_Attente, it has no stock/cash/emballage ledger effects.
+            if ($purchase['status'] === 'En_Attente') {
+                $stmt = $this->db->prepare("UPDATE purchases SET status = 'Cancelled', notes = CONCAT(COALESCE(notes, ''), ?) WHERE id = ?");
+                $noteAppend = $reason ? (" [Annulé le " . date('d/m/Y H:i') . ": " . $reason . "]") : (" [Annulé le " . date('d/m/Y H:i') . "]");
+                $stmt->execute([$noteAppend, $id]);
+                $this->db->commit();
+                return true;
+            }
+
             // 1. Mark status as Cancelled
             $stmt = $this->db->prepare("UPDATE purchases SET status = 'Cancelled' WHERE id = ?");
             $stmt->execute([$id]);

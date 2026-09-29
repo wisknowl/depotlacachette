@@ -1,7 +1,9 @@
 -- ==============================================================================
 -- SCRIPT DE RÉINITIALISATION GLOBALE DU DÉPÔT (RESET TO ZERO)
--- CONSERVE : users, products, clients, suppliers, employees, payment_methods, categories, formats, packaging_types
--- PURGE    : Toutes les transactions, dettes, caisses et mouvements de stock
+-- CONSERVE : users, products, clients, suppliers, employees, payment_methods, 
+--            categories, formats, packaging_types, client_types, expense_categories,
+--            movement_types, cash_accounts
+-- PURGE    : Toutes les transactions, dettes, caisses, audits et mouvements de stock
 -- ==============================================================================
 
 SET FOREIGN_KEY_CHECKS = 0;
@@ -40,19 +42,15 @@ DELETE FROM `supplier_emballage_debts`;
 ALTER TABLE `supplier_emballage_debts` AUTO_INCREMENT = 1;
 
 DELETE FROM `client_payments`;
-ALTER TABLE `client_payments` AUTO_INCREMENT = 1;
 
 DELETE FROM `supplier_payments`;
-ALTER TABLE `supplier_payments` AUTO_INCREMENT = 1;
 
 DELETE FROM `payroll_payments`;
-ALTER TABLE `payroll_payments` AUTO_INCREMENT = 1;
 
 DELETE FROM `employee_ledger`;
 ALTER TABLE `employee_ledger` AUTO_INCREMENT = 1;
 
 DELETE FROM `expenses`;
-ALTER TABLE `expenses` AUTO_INCREMENT = 1;
 
 DELETE FROM `sales`;
 
@@ -67,10 +65,15 @@ ALTER TABLE `system_audit_logs` AUTO_INCREMENT = 1;
 -- ------------------------------------------------------------------------------
 -- 3. REMISE À ZÉRO DU STOCK MATÉRIEL D'EMBALLAGES VIDES (NIVEAU 3)
 -- ------------------------------------------------------------------------------
--- Réinitialise les casiers et bouteilles vides du magasin à 0
+-- Réinitialise les casiers et bouteilles vides du magasin à 0 pour tous les types
 UPDATE `emballage_stock` 
 SET `empty_crates` = 0, 
     `loose_bottles` = 0;
+
+-- S'assure que chaque type d'emballage configuré possède bien sa ligne à 0
+INSERT INTO `emballage_stock` (`packaging_type_id`, `empty_crates`, `loose_bottles`)
+SELECT `id`, 0, 0 FROM `packaging_types`
+ON DUPLICATE KEY UPDATE `empty_crates` = 0, `loose_bottles` = 0;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
