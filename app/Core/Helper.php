@@ -54,6 +54,37 @@ class Helper {
         return ($formatType === 'demi') ? $units['demi_short'] : $units['full_short'];
     }
 
+    public static function formatEmballageDebt($cratesDue, $bottlesDue, $companyOrType = '', $factor = 12) {
+        $crates = max(0, intval($cratesDue));
+        $bottles = max(0, intval($bottlesDue));
+        $factor = max(1, intval($factor ?: 12));
+        $suffix = !empty($companyOrType) ? ' ' . trim($companyOrType) : '';
+
+        $fullCasiers = min($crates, intdiv($bottles, $factor));
+        $remBottles = $bottles - ($fullCasiers * $factor);
+        $remCrates = $crates - $fullCasiers;
+
+        $parts = [];
+
+        if ($fullCasiers > 0) {
+            $parts[] = "{$fullCasiers} casier" . ($fullCasiers > 1 ? 's' : '') . $suffix;
+        }
+
+        if ($remBottles > 0 && $remCrates > 0) {
+            $parts[] = "{$remBottles} btls (dans {$remCrates} emb.{$suffix})";
+        } elseif ($remBottles > 0) {
+            $parts[] = "{$remBottles} btls" . ($fullCasiers > 0 ? '' : $suffix);
+        } elseif ($remCrates > 0) {
+            $parts[] = "{$remCrates} emb. vide" . ($remCrates > 1 ? 's' : '') . $suffix;
+        }
+
+        if (empty($parts)) {
+            return "0 emb.";
+        }
+
+        return implode(' + ', $parts);
+    }
+
     public static function isAdmin() {
         if (!isset($_SESSION['user'])) {
             return false;

@@ -44,8 +44,8 @@
                     <label class="form-label" style="font-weight: 700; font-size: 0.85rem; color: #334155; margin-bottom: 0;">
                         Client Bénéficiaire <span style="color: var(--c-danger);">*</span>
                     </label>
-                    <button type="button" class="btn btn-sm btn-accent" style="padding: 1px 8px; font-size: 0.75rem; background: #0284C7; border-color: #0284C7;" onclick="openQuickAvoirModal()">
-                        <i class='bx bx-plus-circle'></i> + Créer Avoir
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="openQuickAvoirModal()" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; font-weight: 700; color: #059669; border-color: #A7F3D0; background: #ECFDF5;">
+                        <i class='bx bx-wallet-alt'></i> + Créer Avoir
                     </button>
                 </div>
                 <select name="client_id" id="vente_client_select" class="form-control" required onchange="onClientChange()" style="font-size: 0.95rem;">
@@ -118,8 +118,8 @@
                 <i class='bx bx-cart' style="font-size: 1.3rem; color: #059669;"></i> Panier des Boissons au Détail
             </div>
             <div style="display: flex; gap: 8px;">
-                <button type="button" class="btn btn-accent" onclick="addNewBottleRow()" style="background: #059669; border-color: #059669; font-size: 0.88rem; padding: 6px 14px;">
-                    <i class='bx bx-plus'></i> + Ajouter une Boisson
+                <button type="button" class="btn btn-accent" onclick="addNewBottleRow()" style="padding: 6px 14px; font-size: 0.88rem;">
+                    <i class='bx bx-plus-circle'></i> Ajouter une boisson
                 </button>
             </div>
         </div>
@@ -250,8 +250,8 @@
             <div id="credit_limit_warning" style="display: none; background: #FEF2F2; border-left: 4px solid #DC2626; color: #991B1B; padding: 10px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 15px;"></div>
 
             <!-- SUBMIT BUTTON -->
-            <button type="button" class="btn btn-accent" onclick="openDetailConfirmModal()" style="width: 100%; padding: 12px; font-size: 1.05rem; font-weight: 800; background: #059669; border-color: #059669; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <i class='bx bx-check-double'></i> Vérifier & Valider la Vente au Détail
+            <button type="button" class="btn btn-accent" onclick="openDetailConfirmModal()" style="padding: 10px 24px; font-size: 1rem; font-weight: 700;">
+                <i class='bx bx-check-circle'></i> Vérifier & Valider la Vente au Détail
             </button>
         </div>
     </div>
@@ -433,6 +433,10 @@ function addNewBottleRow() {
                 <span>Vides rendus :</span>
                 <input type="number" step="1" min="0" name="items[${rowCounter}][bottles_returned]" class="item-bottles-ret form-control" value="0" style="width: 70px; padding: 2px 6px; font-size: 0.82rem; text-align: center;" oninput="calculateTotals()">
             </div>
+            <label id="retail_emb_box_${rowCounter}" style="display: none; margin-top: 4px; font-size: 0.76rem; color: #1E293B; cursor: pointer; align-items: center; gap: 4px; background: #EEF2FF; padding: 2px 6px; border-radius: 4px; border: 1px solid #C7D2FE;" title="Cocher si les bouteilles emportées partent dans un emballage / casier plastique">
+                <input type="checkbox" name="items[${rowCounter}][has_emb]" id="has_emb_${rowCounter}" value="1" onchange="calculateTotals()">
+                <span>Sorti avec emb.</span>
+            </label>
         </td>
         <td>
             <input type="number" step="1" min="1" name="items[${rowCounter}][quantity]" class="item-qty form-control" required value="1" style="font-size: 0.95rem; font-weight: 700; text-align: center;" oninput="onBottleQtyChange(${rowCounter})">
@@ -473,7 +477,13 @@ function onBottleProductChange(id) {
     const prodId = parseInt(prodSelect.value) || 0;
     const prod = availableProducts.find(p => p.id === prodId);
 
+    const qtyInput = row.querySelector('.item-qty');
+
     if (!prod) {
+        if (qtyInput) {
+            qtyInput.removeAttribute('max');
+            qtyInput.removeAttribute('title');
+        }
         stockBadge.innerText = "-";
         stockBadge.style.background = "#E2E8F0";
         stockBadge.style.color = "#475569";
@@ -483,10 +493,31 @@ function onBottleProductChange(id) {
         return;
     }
 
+    // Block duplicate rows: the same product cannot be selected twice in the basket
+    const alreadySelected = Array.from(document.querySelectorAll("#items_tbody tr"))
+        .filter(r => r.id !== `row_${id}`)
+        .some(r => parseInt(r.querySelector('.item-product')?.value) === prodId);
+
+    if (alreadySelected) {
+        alert(`La boisson "${prod.name}" est déjà présente dans le panier.\nModifiez directement la quantité sur la ligne existante.`);
+        prodSelect.value = "";
+        onBottleProductChange(id);
+        return;
+    }
+
     const factor = prod.factor || 12;
     const totalBtlsInStock = Math.floor((prod.current_stock || 0) * factor);
     stockBadge.innerText = `${totalBtlsInStock} btls`;
 
+    // Retail cap: strictly less than a full crate (factor - 1), and never above bottles in stock
+    if (qtyInput) {
+        const crateCap = Math.max(1, factor - 1);
+        const maxQty = Math.max(1, Math.min(crateCap, totalBtlsInStock));
+        qtyInput.max = maxQty;
+        qtyInput.title = (maxQty < crateCap)
+            ? `Max ${maxQty} btls (stock disponible)`
+            : `Max ${maxQty} btls au détail (casier de ${factor} = vente en gros)`;
+    }
     if (totalBtlsInStock <= 0) {
         stockBadge.style.background = "#FEE2E2";
         stockBadge.style.color = "#DC2626";
@@ -504,9 +535,9 @@ function onBottleProductChange(id) {
         embModeSelect.disabled = true;
     }
 
-        const unitPr = prod.calculated_price_unite || prod.price_unite || (prod.factor ? Math.round(prod.price_casier / prod.factor) : 0);
-        priceInput.value = unitPr;
-        onBottleQtyChange(id);
+    const unitPr = prod.calculated_price_unite || prod.price_unite || (prod.factor ? Math.round(prod.price_casier / prod.factor) : 0);
+    priceInput.value = unitPr;
+    onBottleQtyChange(id);
 }
 
 function onBottleQtyChange(id) {
@@ -514,6 +545,12 @@ function onBottleQtyChange(id) {
     const qtyInput = row.querySelector('.item-qty');
     const btlsRetInput = row.querySelector('.item-bottles-ret');
     const embMode = row.querySelector('.item-emb-mode')?.value;
+
+    // Clamp typed value to the retail max (factor - 1)
+    const maxQty = parseInt(qtyInput?.max) || 0;
+    if (qtyInput && maxQty > 0 && (parseFloat(qtyInput.value) || 0) > maxQty) {
+        qtyInput.value = maxQty;
+    }
 
     const qty = parseFloat(qtyInput?.value) || 1;
     if (embMode === 'echange' && btlsRetInput) {
@@ -526,15 +563,26 @@ function onEmbModeChange(id) {
     const row = document.getElementById(`row_${id}`);
     const embMode = row.querySelector('.item-emb-mode')?.value;
     const retBox = document.getElementById(`ret_input_box_${id}`);
+    const retailEmbBox = document.getElementById(`retail_emb_box_${id}`);
+    const hasEmbChk = document.getElementById(`has_emb_${id}`);
     const btlsRetInput = row.querySelector('.item-bottles-ret');
     const qty = parseFloat(row.querySelector('.item-qty')?.value) || 1;
 
     if (embMode === 'echange') {
         retBox.style.display = "flex";
         if (btlsRetInput) btlsRetInput.value = qty;
+        if (retailEmbBox) retailEmbBox.style.display = "inline-flex";
+    } else if (embMode === 'dette') {
+        retBox.style.display = "none";
+        if (btlsRetInput) btlsRetInput.value = 0;
+        if (retailEmbBox) retailEmbBox.style.display = "inline-flex";
     } else {
         retBox.style.display = "none";
         if (btlsRetInput) btlsRetInput.value = 0;
+        if (retailEmbBox) {
+            retailEmbBox.style.display = "none";
+            if (hasEmbChk) hasEmbChk.checked = false;
+        }
     }
     calculateTotals();
 }
@@ -550,6 +598,9 @@ function calculateTotals() {
         const priceInput = tr.querySelector('.item-price');
         const embModeSelect = tr.querySelector('.item-emb-mode');
         const btlsRetInput = tr.querySelector('.item-bottles-ret');
+        const rowId = tr.id.replace('row_', '');
+        const hasEmbChk = document.getElementById(`has_emb_${rowId}`);
+        const hasEmb = (hasEmbChk && hasEmbChk.checked) ? true : false;
 
         const prodId = parseInt(prodSelect?.value) || 0;
         const prod = availableProducts.find(p => p.id === prodId);
@@ -575,11 +626,12 @@ function calculateTotals() {
                 const bRet = parseFloat(btlsRetInput?.value) || 0;
                 bDue = Math.max(0, qty - bRet);
             }
-            if (bDue > 0) {
+            if (bDue > 0 || hasEmb) {
                 bottleDebts.push({
                     name: prod.name,
                     code: prod.short_code || prod.name,
-                    missingBottles: bDue
+                    missingBottles: bDue,
+                    hasEmb: hasEmb
                 });
             }
         }
@@ -629,10 +681,20 @@ function calculateTotals() {
     const embSummary = document.getElementById("bottle_packaging_summary");
     if (embSummary) {
         if (bottleDebts.length === 0) {
-            embSummary.innerHTML = `<span style="color: #16A34A; font-weight: 700;"><i class='bx bx-check-circle'></i> Aucune dette de verre générée (Bues sur place / Verre rendu 🟢)</span>`;
+            embSummary.innerHTML = `<span style="color: #16A34A; font-weight: 700;"><i class='bx bx-check-circle'></i> Aucune dette d'emballage générée (Bues sur place / Verre rendu 🟢)</span>`;
         } else {
-            const badges = bottleDebts.map(d => `<span style="background: #FEF2F2; color: #DC2626; padding: 2px 8px; border-radius: 4px; border: 1px solid #FECACA; font-size: 0.82rem; font-weight: 700;">+${d.missingBottles} btl [${d.code}]</span>`);
-            embSummary.innerHTML = `<span style="color: #DC2626; font-weight: 700;"><i class='bx bx-archive'></i> Dettes Bouteilles Vrac : </span> &nbsp;` + badges.join(' ');
+            const badges = bottleDebts.map(d => {
+                let text = '';
+                if (d.hasEmb && d.missingBottles > 0) {
+                    text = `${d.missingBottles} btls (dans 1 emb.) [${d.code}]`;
+                } else if (d.hasEmb) {
+                    text = `1 emb. vide [${d.code}]`;
+                } else {
+                    text = `+${d.missingBottles} btl [${d.code}]`;
+                }
+                return `<span style="background: #FEF2F2; color: #DC2626; padding: 2px 8px; border-radius: 4px; border: 1px solid #FECACA; font-size: 0.82rem; font-weight: 700;">${text}</span>`;
+            });
+            embSummary.innerHTML = `<span style="color: #DC2626; font-weight: 700;"><i class='bx bx-archive'></i> Dettes Emballages : </span> &nbsp;` + badges.join(' ');
         }
     }
 
@@ -868,6 +930,10 @@ function openDetailConfirmModal() {
         const lineTot = qty * price;
         const code = prod.short_code ? `[${prod.short_code}] ` : '';
 
+        const rowId = tr.id.replace('row_', '');
+        const hasEmbChk = document.getElementById(`has_emb_${rowId}`);
+        const hasEmb = (hasEmbChk && hasEmbChk.checked) ? true : false;
+
         let modeText = '<span style="color: #64748B;">Perdu</span>';
         if (prod.is_returnable) {
             const embMode = embModeSelect?.value || 'sur_place';
@@ -876,11 +942,21 @@ function openDetailConfirmModal() {
             } else if (embMode === 'echange') {
                 const bRet = parseFloat(btlsRetInput?.value) || 0;
                 const mDue = Math.max(0, qty - bRet);
-                modeText = `Échange (${bRet} btl rendue${mDue > 0 ? `, <span style="color: #DC2626; font-weight: 700;">+${mDue} due</span>` : ' 🟢'})`;
-                if (mDue > 0) bottleDebts.push(`+${mDue} btl [${prod.short_code || prod.name}]`);
+                modeText = `Échange (${bRet} btl rendue${mDue > 0 ? `, <span style="color: #DC2626; font-weight: 700;">+${mDue} due</span>` : ' 🟢'})${hasEmb ? ' + 1 emb.' : ''}`;
+                if (mDue > 0 && hasEmb) {
+                    bottleDebts.push(`${mDue} btls (dans 1 emb.) [${prod.short_code || prod.name}]`);
+                } else if (hasEmb) {
+                    bottleDebts.push(`1 emb. vide [${prod.short_code || prod.name}]`);
+                } else if (mDue > 0) {
+                    bottleDebts.push(`+${mDue} btl [${prod.short_code || prod.name}]`);
+                }
             } else {
-                modeText = '<span style="color: #DC2626; font-weight: 700;">Dette de verre</span>';
-                bottleDebts.push(`+${qty} btl [${prod.short_code || prod.name}]`);
+                modeText = `<span style="color: #DC2626; font-weight: 700;">Dette de verre</span>${hasEmb ? ' <span style="background: #EEF2FF; color: #3730A3; padding: 1px 5px; border-radius: 4px; font-size: 0.72rem; font-weight: 700;">+ 1 emb.</span>' : ''}`;
+                if (hasEmb) {
+                    bottleDebts.push(`${qty} btls (dans 1 emb.) [${prod.short_code || prod.name}]`);
+                } else {
+                    bottleDebts.push(`+${qty} btl [${prod.short_code || prod.name}]`);
+                }
             }
         }
 

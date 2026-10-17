@@ -171,7 +171,7 @@
                             <th style="min-width: 105px; text-align: right;">Prix Casier (FCFA)</th>
                             <th style="min-width: 90px; text-align: center;" title="Nombre de casiers entiers">Casiers Entiers</th>
                             <th style="min-width: 135px; text-align: center;" title="Cocher pour ajouter 1 demi-casier">+ 1 Demi (0.5)</th>
-                            <th style="min-width: 90px; text-align: center;" title="Casiers vides rapportés par le client">Casiers Rendus</th>
+                            <th style="min-width: 95px; text-align: center;" title="Emballages / Casiers vides rapportés par le client">Emb. Rendus</th>
                             <th style="min-width: 90px; text-align: center;" title="Bouteilles individuelles en vrac rendues par le client">Btl Vrac Rendues</th>
                             <?php if (\App\Core\Helper::isAdmin()): ?>
                                 <th style="min-width: 75px; text-align: center;" title="Cocher pour mettre à jour le prix officiel du catalogue pour cette boisson">🏷️ MàJ Cat.</th>
@@ -417,7 +417,7 @@
                             <th>Format</th>
                             <th>Quantité</th>
                             <th>Prix Unit.</th>
-                            <th>Casiers Rendus</th>
+                            <th>Restitution Emballages</th>
                             <th style="text-align: right;">Total Ligne</th>
                         </tr>
                     </thead>
@@ -466,16 +466,20 @@
                 <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 14px 18px;">
                     <span style="font-size: 0.82rem; font-weight: 700; color: #64748B; text-transform: uppercase; display: block; margin-bottom: 8px;">Bilan des Emballages</span>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem;">
-                        <span>Casiers Emportés :</span>
+                        <span>Casiers Pleins Emportés :</span>
                         <strong id="vmodal_crates_out">0 casier(s)</strong>
                     </div>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem; color: #16A34A;">
-                        <span>Casiers Rendus :</span>
-                        <strong id="vmodal_crates_in">0 casier(s)</strong>
+                        <span>Emballages (Emb.) Rendus :</span>
+                        <strong id="vmodal_crates_in">0 emb.</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem; color: #16A34A;">
+                        <span>Bouteilles (Btls) Rendues :</span>
+                        <strong id="vmodal_bottles_in">0 btls</strong>
                     </div>
                     <div style="border-top: 1px solid #CBD5E1; padding-top: 6px; display: flex; justify-content: space-between; font-size: 0.95rem;">
                         <span>Dette Emballages Nette :</span>
-                        <strong id="vmodal_crates_due" style="color: #D97706;">0 casier(s)</strong>
+                        <strong id="vmodal_crates_due" style="color: #D97706;">0 emb.</strong>
                     </div>
                 </div>
             </div>
@@ -638,6 +642,10 @@ function addNewProductRow() {
                 <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.84rem; font-weight: 700; user-select: none; margin-bottom: 0;">
                     <input type="checkbox" name="items[${rowCounter}][has_demi]" value="1" class="item-has-demi" id="has_demi_${rowCounter}" onchange="onDemiToggle(${rowCounter})">
                     <span id="demi_label_${rowCounter}" style="color: #92400E;">+ 1 Demi</span>
+                </label>
+                <label id="demi_emb_box_${rowCounter}" style="display: none; margin-top: 2px; font-size: 0.74rem; color: #3730A3; cursor: pointer; align-items: center; gap: 4px; background: #EEF2FF; padding: 2px 6px; border-radius: 4px; border: 1px solid #C7D2FE;" title="Cocher si le demi part avec un emballage / casier plastique">
+                    <input type="checkbox" name="items[${rowCounter}][has_demi_emb]" id="has_demi_emb_${rowCounter}" value="1" checked onchange="calculateTotals()">
+                    <span>Sorti avec emb.</span>
                 </label>
                 <span id="demi_price_tag_${rowCounter}" style="font-size: 0.72rem; color: #64748B; font-weight: 600;">(0 F)</span>
                 <input type="hidden" name="items[${rowCounter}][demi_unit_price]" id="demi_price_${rowCounter}" value="0">
@@ -941,6 +949,7 @@ function onDemiToggle(id) {
     const prodSelect = row.querySelector('.item-product');
     const qtyInput = row.querySelector('.item-qty');
     const hasDemiChk = document.getElementById(`has_demi_${id}`);
+    const demiEmbBox = document.getElementById(`demi_emb_box_${id}`);
     const bottlesRetInput = row.querySelector('.item-bottles-ret');
 
     const prodId = parseInt(prodSelect?.value) || 0;
@@ -948,6 +957,10 @@ function onDemiToggle(id) {
     const isChecked = hasDemiChk?.checked || false;
     const factor = prod ? (prod.factor || 12) : 12;
     const demiBtls = Math.round(factor / 2);
+
+    if (demiEmbBox) {
+        demiEmbBox.style.display = isChecked ? 'inline-flex' : 'none';
+    }
 
     if (isChecked) {
         qtyInput.min = 0;
@@ -1159,16 +1172,19 @@ function calculateTotals() {
             embSummary.innerHTML = `<span style="color: #16A34A; font-weight: 700;"><i class='bx bx-check-circle'></i> Dettes Emballages : 0 (Échange 1 pour 1 🟢)</span>`;
         } else {
             const debtBadges = pkgData.debts.map(d => {
-                let str = '';
-                if (d.missingCrates > 0) {
-                    str += `${d.missingCrates} c. [${d.code}]`;
-                    if (d.missingLoose > 0) {
-                        str += ` + ${d.missingLoose} btl(s)`;
-                    }
-                } else {
-                    str += `+${d.missingLoose} btl(s) [${d.code}]`;
-                }
-                return `<span style="background: #FEF3C7; color: #92400E; padding: 2px 7px; border-radius: 4px; border: 1px solid #FCD34D; font-size: 0.82rem; font-weight: 700;">${str}</span>`;
+                const factor = d.factor || 12;
+                const fullC = Math.min(d.missingCrates, Math.floor(d.missingLoose / factor));
+                const remB = d.missingLoose - (fullC * factor);
+                const remC = d.missingCrates - fullC;
+
+                const parts = [];
+                if (fullC > 0) parts.push(`${fullC} casier` + (fullC > 1 ? 's' : ''));
+                if (remB > 0 && remC > 0) parts.push(`${remB} btls (dans ${remC} emb.)`);
+                else if (remB > 0) parts.push(`${remB} btls`);
+                else if (remC > 0) parts.push(`${remC} emb. vide` + (remC > 1 ? 's' : ''));
+
+                const str = parts.length > 0 ? parts.join(' + ') : '0 emb.';
+                return `<span style="background: #FEF3C7; color: #92400E; padding: 2px 7px; border-radius: 4px; border: 1px solid #FCD34D; font-size: 0.82rem; font-weight: 700;">${str} [${d.code}]</span>`;
             });
             embSummary.innerHTML = `<span style="color: #D97706; font-weight: 700;"><i class='bx bx-archive'></i> Dettes Emballages : </span> ` + debtBadges.join(' ');
         }
@@ -1335,10 +1351,12 @@ function getPackagingDebts() {
 
         const qty = parseFloat(qtyInput?.value) || 0;
         const hasDemi = (hasDemiChk && hasDemiChk.checked) ? 1 : 0;
+        const hasDemiEmbChk = document.getElementById(`has_demi_emb_${rowId}`);
+        const hasDemiEmb = (hasDemi && hasDemiEmbChk && hasDemiEmbChk.checked) ? 1 : 0;
         const factor = prod.factor || 12;
 
-        const cOut = Math.floor(qty);
-        const bOut = (qty * factor) + (hasDemi ? Math.round(factor / 2) : 0);
+        const cOut = Math.floor(qty) + hasDemiEmb;
+        const bOut = (Math.floor(qty) * factor) + (hasDemi ? Math.round(factor / 2) : 0);
         const cIn = parseFloat(cratesRetInput?.value) || 0;
         const bIn = parseFloat(bottlesRetInput?.value) || 0;
 
@@ -1349,16 +1367,16 @@ function getPackagingDebts() {
 
         const totalRestitutedBtls = (cIn * factor) + bIn;
         const missingBtls = Math.max(0, bOut - totalRestitutedBtls);
-        if (missingBtls > 0) {
-            const mCrates = Math.floor(missingBtls / factor);
-            const mLoose = missingBtls % factor;
+        const missingCrates = Math.max(0, cOut - cIn);
+
+        if (missingBtls > 0 || missingCrates > 0) {
             debts.push({
                 product_id: prod.id,
                 name: prod.name,
                 code: prod.short_code || prod.name,
                 factor: factor,
-                missingCrates: mCrates,
-                missingLoose: mLoose,
+                missingCrates: missingCrates,
+                missingLoose: missingBtls,
                 totalMissingBottles: missingBtls
             });
         }
@@ -1516,17 +1534,30 @@ function openVenteConfirmModal() {
 
     const pkgData = getPackagingDebts();
     document.getElementById("vmodal_crates_out").innerText = `${pkgData.totalCratesOut} casier(s)`;
-    document.getElementById("vmodal_crates_in").innerText = `${pkgData.totalCratesIn} casier(s)`;
+    document.getElementById("vmodal_crates_in").innerText = `${pkgData.totalCratesIn} emb.`;
+    let totalLooseReturned = 0;
+    rows.forEach(tr => {
+        totalLooseReturned += parseFloat(tr.querySelector('.item-bottles-ret')?.value) || 0;
+    });
+    const btlsInEl = document.getElementById("vmodal_bottles_in");
+    if (btlsInEl) btlsInEl.innerText = `${totalLooseReturned} btls`;
 
     if (pkgData.debts.length === 0) {
-        document.getElementById("vmodal_crates_due").innerHTML = `<span style="color: #16A34A; font-weight: 700;">0 casier (Échange 1 pour 1 🟢)</span>`;
+        document.getElementById("vmodal_crates_due").innerHTML = `<span style="color: #16A34A; font-weight: 700;">0 emb. (Échange 1 pour 1 🟢)</span>`;
     } else {
         const modalDebtList = pkgData.debts.map(d => {
-            if (d.missingCrates > 0) {
-                return `${d.missingCrates} c. [${d.code}]` + (d.missingLoose > 0 ? ` + ${d.missingLoose} btl(s)` : '');
-            } else {
-                return `+${d.missingLoose} btl(s) [${d.code}]`;
-            }
+            const factor = d.factor || 12;
+            const fullC = Math.min(d.missingCrates, Math.floor(d.missingLoose / factor));
+            const remB = d.missingLoose - (fullC * factor);
+            const remC = d.missingCrates - fullC;
+
+            const parts = [];
+            if (fullC > 0) parts.push(`${fullC} casier` + (fullC > 1 ? 's' : ''));
+            if (remB > 0 && remC > 0) parts.push(`${remB} btls (dans ${remC} emb.)`);
+            else if (remB > 0) parts.push(`${remB} btls`);
+            else if (remC > 0) parts.push(`${remC} emb. vide` + (remC > 1 ? 's' : ''));
+
+            return (parts.length > 0 ? parts.join(' + ') : '0 emb.') + ` [${d.code}]`;
         });
         document.getElementById("vmodal_crates_due").innerHTML = `<span style="color: #DC2626; font-weight: 700;">⚠️ ${modalDebtList.join(' | ')}</span>`;
     }

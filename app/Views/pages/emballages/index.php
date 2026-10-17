@@ -62,12 +62,23 @@
         </div>
         <div class="stat-content">
             <div class="stat-value" style="color: #D97706;">
-                <?= number_format($summary['total_client_crates'], 0, ',', ' ') ?>
-                <?php if ($summary['total_client_bottles'] > 0): ?>
-                    <span style="font-size: 0.85rem; font-weight: 500; color: #64748B;">(+<?= $summary['total_client_bottles'] ?> btl)</span>
+                <?php if ($summary['total_client_crates'] > 0): ?>
+                    <?= number_format($summary['total_client_crates'], 0, ',', ' ') ?> emb.
+                    <?php if ($summary['total_client_bottles'] > 0): ?>
+                        <span style="font-size: 0.8rem; font-weight: 600; color: #B45309; display: block; margin-top: -2px;">
+                            (contenant <?= number_format($summary['total_client_bottles'], 0, ',', ' ') ?> btls consignées)
+                        </span>
+                    <?php endif; ?>
+                <?php elseif ($summary['total_client_bottles'] > 0): ?>
+                    <?= number_format($summary['total_client_bottles'], 0, ',', ' ') ?> btls
+                    <span style="font-size: 0.8rem; font-weight: 600; color: #B45309; display: block; margin-top: -2px;">
+                        (sans emballage plastique)
+                    </span>
+                <?php else: ?>
+                    0 emb.
                 <?php endif; ?>
             </div>
-            <div class="stat-label">Casiers Détenus par Clients</div>
+            <div class="stat-label">Emballages Détenus par Clients</div>
         </div>
     </div>
 
@@ -144,10 +155,18 @@
                             <small style="display: block; font-size: 0.75rem; color: #64748B;">+<?= $pt['loose_bottles'] ?> btl vrac</small>
                         <?php endif; ?>
                     </td>
-                    <td style="text-align: center; font-weight: 600; color: #D97706;">
-                        <?= number_format($pt['client_crates_due'], 0, ',', ' ') ?>
-                        <?php if ($pt['client_bottles_due'] > 0): ?>
-                            <small style="display: block; font-size: 0.75rem; color: #D97706;">+<?= $pt['client_bottles_due'] ?> btl</small>
+                    <td style="text-align: center; font-weight: 600;">
+                        <?php 
+                        $cratesDue = intval($pt['client_crates_due']);
+                        $bottlesDue = intval($pt['client_bottles_due']);
+                        if ($cratesDue > 0 || $bottlesDue > 0): 
+                            $formattedDebt = \App\Core\Helper::formatEmballageDebt($cratesDue, $bottlesDue, '', $pt['bottles_per_crate']);
+                        ?>
+                            <span style="color: #D97706; font-weight: 700; font-size: 0.84rem; background: #FFFBEB; padding: 2px 7px; border-radius: 5px; border: 1px solid #FDE68A; display: inline-block;">
+                                <?= htmlspecialchars($formattedDebt) ?>
+                            </span>
+                        <?php else: ?>
+                            <span style="color: #94A3B8; font-weight: 600;">0</span>
                         <?php endif; ?>
                     </td>
                     <td style="text-align: center; font-weight: 600; color: #DC2626;">
@@ -198,8 +217,8 @@
                         <th>Client</th>
                         <th>Type Emballage / Modèle</th>
                         <th>Boissons (Sigles)</th>
-                        <th style="text-align: center;">Casiers Dûs</th>
-                        <th style="text-align: center;">Bouteilles Vrac</th>
+                        <th style="text-align: center;">Emballages (Emb.) Dûs</th>
+                        <th style="text-align: center;">Bouteilles (Btls) Dues</th>
                         <th style="text-align: center;">Action</th>
                     </tr>
                 </thead>
@@ -233,11 +252,11 @@
                                             <?php foreach ($cd['source_invoices'] as $inv): ?>
                                                 <a href="<?= BASE_URL ?>/ventes/invoice/<?= htmlspecialchars($inv['sale_id']) ?>" 
                                                    target="_blank" 
-                                                   title="Facture <?= htmlspecialchars($inv['sale_id']) ?> du <?= htmlspecialchars($inv['sale_date']) ?> : <?= $inv['crates_due'] ?> casier(s) / <?= $inv['bottles_due'] ?> btl non rendus initialement (<?= htmlspecialchars($inv['products']) ?>)"
+                                                   title="Facture <?= htmlspecialchars($inv['sale_id']) ?> du <?= htmlspecialchars($inv['sale_date']) ?> : <?= $inv['crates_due'] ?> emb. / <?= $inv['bottles_due'] ?> btls non rendus initialement (<?= htmlspecialchars($inv['products']) ?>)"
                                                    style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; border-radius: 4px; font-size: 0.72rem; font-weight: 700; text-decoration: none; width: fit-content;">
                                                     <i class='bx bx-receipt'></i> Facture <?= htmlspecialchars($inv['sale_id']) ?>
                                                     <span style="color: #64748B; font-weight: 600; font-size: 0.68rem;">(<?= htmlspecialchars($inv['sale_date']) ?>)</span>
-                                                    <span style="color: #DC2626; font-size: 0.68rem; font-weight: 800;">[+<?= $inv['crates_due'] ?> c.]</span>
+                                                    <span style="color: #DC2626; font-size: 0.68rem; font-weight: 800;">[+<?= $inv['crates_due'] ?> emb.<?= $inv['bottles_due'] > 0 ? ' + ' . $inv['bottles_due'] . ' btls' : '' ?>]</span>
                                                 </a>
                                             <?php endforeach; ?>
                                         </div>
@@ -263,7 +282,7 @@
                                 <td style="text-align: center;">
                                     <?php if ($cd['crates_due'] > 0): ?>
                                         <span style="padding: 3px 8px; background: #FEF2F2; color: #DC2626; border-radius: 6px; font-weight: 800; font-size: 0.88rem;">
-                                            <?= $cd['crates_due'] ?>
+                                            <?= $cd['crates_due'] ?> emb.
                                         </span>
                                     <?php else: ?>
                                         <span style="color: #94A3B8; font-weight: 600;">0</span>
@@ -272,11 +291,17 @@
                                 <td style="text-align: center;">
                                     <?php if ($cd['loose_bottles_due'] > 0): ?>
                                         <span style="padding: 3px 8px; background: #FFFBEB; color: #D97706; border-radius: 6px; font-weight: 700;">
-                                            +<?= $cd['loose_bottles_due'] ?> btl
+                                            +<?= $cd['loose_bottles_due'] ?> btls
                                         </span>
                                     <?php else: ?>
                                         <span style="color: #94A3B8; font-weight: 600;">0</span>
                                     <?php endif; ?>
+                                    <?php 
+                                    $comb = \App\Core\Helper::formatEmballageDebt($cd['crates_due'], $cd['loose_bottles_due'], '', $cd['bottles_per_crate']);
+                                    ?>
+                                    <div style="font-size: 0.73rem; color: #64748B; font-weight: 600; margin-top: 3px;" title="Interprétation combinée physique">
+                                        (<?= htmlspecialchars($comb) ?>)
+                                    </div>
                                 </td>
                                 <td style="text-align: center;">
                                     <?php 
@@ -398,18 +423,18 @@
 
                 <div class="dashboard-grid" style="margin-bottom: 15px;">
                     <div class="form-group">
-                        <label class="form-label" style="font-weight: 700;">Nombre de Casiers Rendus</label>
+                        <label class="form-label" style="font-weight: 700;">Emballages (Emb.) Rendus</label>
                         <input type="number" name="crates_returned" id="modal_crates_returned" class="form-control" min="0" value="0" style="font-size: 1rem; font-weight: 700; text-align: center;">
                     </div>
                     <div class="form-group">
-                        <label class="form-label" style="font-weight: 700;">Bouteilles Vrac Rendues</label>
+                        <label class="form-label" style="font-weight: 700;">Bouteilles (Btls) Rendues</label>
                         <input type="number" name="loose_bottles_returned" id="modal_bottles_returned" class="form-control" min="0" value="0" style="font-size: 1rem; font-weight: 700; text-align: center;">
                     </div>
                 </div>
 
                 <div class="form-group" style="margin-bottom: 20px;">
                     <label class="form-label">Notes / Observation</label>
-                    <input type="text" name="notes" class="form-control" placeholder="Ex: Retour casiers vides au dépôt...">
+                    <input type="text" name="notes" class="form-control" placeholder="Ex: Retour emballages vides au dépôt...">
                 </div>
 
                 <div style="display: flex; gap: 10px; justify-content: flex-end;">
@@ -438,8 +463,14 @@ function quickRestitute(clientId, pkgId, crates, bottles, clientName, modelName,
     if (infoBanner && clientName && modelName) {
         document.getElementById('modal_info_client').innerText = clientName;
         document.getElementById('modal_info_model').innerText = modelName;
-        var debtText = crates + ' casier(s)';
-        if (bottles > 0) debtText += ' + ' + bottles + ' btl(s) vrac';
+        var debtText = '';
+        if (crates > 0 && bottles > 0) {
+            debtText = bottles + ' btls (dans ' + crates + ' emb.)';
+        } else if (crates > 0) {
+            debtText = crates + ' emb. vide';
+        } else {
+            debtText = bottles + ' btls';
+        }
         document.getElementById('modal_info_debt').innerText = debtText;
 
         var invRow = document.getElementById('modal_info_invoices_row');

@@ -142,6 +142,23 @@ class VentesModel {
         $stmtItems->execute([$id]);
         $sale['items'] = $stmtItems->fetchAll();
 
+        // Fetch client packaging debts
+        $stmtClientDebts = $this->db->prepare("
+            SELECT 
+                ced.packaging_type_id,
+                ced.crates_due,
+                ced.loose_bottles_due,
+                pt.name as packaging_name,
+                pt.company as packaging_company,
+                pt.bottles_per_crate
+            FROM client_emballage_debts ced
+            JOIN packaging_types pt ON ced.packaging_type_id = pt.id
+            WHERE ced.client_id = ? AND (ced.crates_due > 0 OR ced.loose_bottles_due > 0)
+            ORDER BY pt.company ASC, pt.name ASC
+        ");
+        $stmtClientDebts->execute([$sale['client_id']]);
+        $sale['client_packaging_debts'] = $stmtClientDebts->fetchAll();
+
         return $sale;
     }
 
@@ -365,14 +382,15 @@ class VentesModel {
             $netLooseBottlesDue = 0;
 
             if ($isReturnable) {
-                $cratesOut = intval($qty);
-                $bottlesOut = (intval($qty) * $factor) + ($hasDemi ? intval($factor / 2) : 0);
+                $hasDemiEmb = $hasDemi && !empty($item['has_demi_emb']);
+                $cratesOut = intval(floor($qty)) + ($hasDemiEmb ? 1 : 0);
+                $bottlesOut = (intval(floor($qty)) * $factor) + ($hasDemi ? intval(round($factor / 2)) : 0);
                 $cratesReturned = isset($item['crates_returned']) ? intval($item['crates_returned']) : 0;
                 $bottlesReturned = isset($item['bottles_returned']) ? intval($item['bottles_returned']) : 0;
                 $totalBottlesRestituted = ($cratesReturned * $factor) + $bottlesReturned;
                 $missingBottles = max(0, $bottlesOut - $totalBottlesRestituted);
-                $netCratesDue = floor($missingBottles / $factor);
-                $netLooseBottlesDue = $missingBottles % $factor;
+                $netCratesDue = max(0, $cratesOut - $cratesReturned);
+                $netLooseBottlesDue = $missingBottles;
             }
 
             $processedItems[] = [
@@ -382,6 +400,7 @@ class VentesModel {
                 'format_id' => $product['format_id'],
                 'format_type' => $hasDemi ? ($qty > 0 ? 'mixte' : 'demi') : 'casier',
                 'has_demi' => $hasDemi,
+                'has_demi_emb' => !empty($item['has_demi_emb']),
                 'is_returnable' => $isReturnable,
                 'crates_out' => $cratesOut,
                 'bottles_out' => $bottlesOut,
@@ -570,17 +589,37 @@ class VentesModel {
                                  ->execute([$pkgTypeId, $id, $client['id'], $item['crates_returned'], $item['bottles_returned'], "Entrée casiers vides rapportés au comptoir (Vente $id)", $userId]);
                     }
 
-                    // Client packaging debt: only commit immediately for COUNTER sales (and not on hold)
-                    if (empty($tourneeId) && !$isHold && ($item['net_crates_due'] > 0 || $item['net_bottles_due'] > 0)) {
-                        $stmtFetchCurDebt->execute([$client['id'], $pkgTypeId]);
-                        $curDebt = $stmtFetchCurDebt->fetch();
-                        $curTotalBtls = (intval($curDebt['crates_due'] ?? 0) * $factor) + intval($curDebt['loose_bottles_due'] ?? 0);
-                        $itemTotalDue = ($item['net_crates_due'] * $factor) + $item['net_bottles_due'];
-                        $finalTotalBtls = $curTotalBtls + $itemTotalDue;
-                        $stmtUpsertDebt->execute([$client['id'], $pkgTypeId, floor($finalTotalBtls / $factor), $finalTotalBtls % $factor]);
+                    // If a demi leaves with an emballage shell, deduct 1 empty crate from depot stock
+                    if (empty($tourneeId) && !$isHold && !empty($item['has_demi_emb'])) {
+                        $this->db->prepare("UPDATE emballage_stock SET empty_crates = GREATEST(0, empty_crates - 1) WHERE packaging_type_id = ?")
+                                 ->execute([$pkgTypeId]);
+                    }
 
-                        $this->db->prepare("INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, client_id, crates_out, bottles_out, notes, created_by) VALUES (?, 'Sale_Drink', ?, ?, ?, ?, ?, ?)")
-                                 ->execute([$pkgTypeId, $id, $client['id'], $item['net_crates_due'], $item['net_bottles_due'], "Sortie emballages non restitués (Dette Vente $id)", $userId]);
+                    // Client packaging debt: only commit immediately for COUNTER sales (and not on hold)
+                    if (empty($tourneeId) && !$isHold) {
+                        $deltaCrates = $item['crates_out'] - $item['crates_returned'];
+                        $deltaBottles = $item['bottles_out'] - (($item['crates_returned'] * $factor) + $item['bottles_returned']);
+
+                        if ($deltaCrates != 0 || $deltaBottles != 0) {
+                            $stmtFetchCurDebt->execute([$client['id'], $pkgTypeId]);
+                            $curDebt = $stmtFetchCurDebt->fetch();
+                            $newCrates = max(0, intval($curDebt['crates_due'] ?? 0) + $deltaCrates);
+                            $newLoose = max(0, intval($curDebt['loose_bottles_due'] ?? 0) + $deltaBottles);
+
+                            if ($newCrates <= 0 && $newLoose <= 0) {
+                                $this->db->prepare("DELETE FROM client_emballage_debts WHERE client_id = ? AND packaging_type_id = ?")
+                                         ->execute([$client['id'], $pkgTypeId]);
+                            } else {
+                                $stmtUpsertDebt->execute([$client['id'], $pkgTypeId, $newCrates, $newLoose]);
+                            }
+
+                            $cratesOutMov = max(0, $deltaCrates);
+                            $bottlesOutMov = max(0, $deltaBottles);
+                            if ($cratesOutMov > 0 || $bottlesOutMov > 0) {
+                                $this->db->prepare("INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, client_id, crates_out, bottles_out, notes, created_by) VALUES (?, 'Sale_Drink', ?, ?, ?, ?, ?, ?)")
+                                         ->execute([$pkgTypeId, $id, $client['id'], $cratesOutMov, $bottlesOutMov, "Sortie emballages non restitués (Dette Vente $id)", $userId]);
+                            }
+                        }
                     }
                 }
             }
@@ -645,6 +684,13 @@ class VentesModel {
             }
 
             $factor = max(1, intval($product['factor'] ?: 12));
+
+            // Retail cap: a retail line must stay below one full crate
+            $retailMax = max(1, $factor - 1);
+            if ($qty > $retailMax) {
+                throw new \Exception("Quantité au détail trop élevée pour '" . htmlspecialchars($product['name']) . "' : maximum {$retailMax} btl(s) (un casier complet de {$factor} doit passer en Vente en Gros).");
+            }
+
             $stockEquivalent = round($qty / $factor, 4);
             $currentStock = floatval($product['current_stock']);
 
@@ -661,6 +707,7 @@ class VentesModel {
             $totalAmount += $lineTotal;
 
             $isReturnable = intval($product['is_returnable'] ?? 1);
+            $hasEmb = !empty($item['has_emb']);
             $cratesOut = 0;
             $bottlesOut = 0;
             $cratesReturned = 0;
@@ -670,14 +717,18 @@ class VentesModel {
 
             if ($isReturnable) {
                 $bottlesOut = intval($qty);
+                $cratesOut = $hasEmb ? 1 : 0;
                 if ($emballageMode === 'sur_place') {
                     $bottlesReturned = intval($qty);
+                    $cratesReturned = $hasEmb ? 1 : 0;
                 } elseif ($emballageMode === 'echange') {
                     $bottlesReturned = min(intval($qty), max(0, intval($item['bottles_returned'] ?? $qty)));
                     $netLooseBottlesDue = max(0, intval($qty) - $bottlesReturned);
+                    $netCratesDue = $cratesOut;
                 } else {
                     $bottlesReturned = 0;
                     $netLooseBottlesDue = intval($qty);
+                    $netCratesDue = $cratesOut;
                 }
             }
 
@@ -688,6 +739,7 @@ class VentesModel {
                 'format_id' => $product['format_id'],
                 'format_type' => 'unite',
                 'is_returnable' => $isReturnable,
+                'has_emb' => $hasEmb,
                 'factor' => $factor,
                 'crates_out' => $cratesOut,
                 'bottles_out' => $bottlesOut,
@@ -809,17 +861,23 @@ class VentesModel {
                                  ->execute([$pkgTypeId, $id, $client['id'], $item['bottles_returned'], "Entrée {$item['bottles_returned']} bouteilles vides vrac (Vente Détail $id)", $userId]);
                     }
 
-                    if ($item['net_loose_bottles_due'] > 0) {
+                    if (!empty($item['has_emb'])) {
+                        $this->db->prepare("UPDATE emballage_stock SET empty_crates = GREATEST(0, empty_crates - 1) WHERE packaging_type_id = ?")
+                                 ->execute([$pkgTypeId]);
+                    }
+
+                    if ($item['net_crates_due'] > 0 || $item['net_loose_bottles_due'] > 0) {
                         $stmtFetchCurDebt->execute([$client['id'], $pkgTypeId]);
                         $curDebt = $stmtFetchCurDebt->fetch();
                         $curCrates = intval($curDebt['crates_due'] ?? 0);
                         $curLoose = intval($curDebt['loose_bottles_due'] ?? 0);
+                        $newCrates = $curCrates + $item['net_crates_due'];
                         $newLoose = $curLoose + $item['net_loose_bottles_due'];
 
-                        $stmtUpsertDebt->execute([$client['id'], $pkgTypeId, $curCrates, $newLoose]);
+                        $stmtUpsertDebt->execute([$client['id'], $pkgTypeId, $newCrates, $newLoose]);
 
-                        $this->db->prepare("INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, client_id, bottles_out, notes, created_by) VALUES (?, 'Sale_Drink', ?, ?, ?, ?, ?)")
-                                 ->execute([$pkgTypeId, $id, $client['id'], $item['net_loose_bottles_due'], "Sortie bouteilles emportées non restituées (Vente Détail $id)", $userId]);
+                        $this->db->prepare("INSERT INTO emballage_movements (packaging_type_id, movement_type, reference_id, client_id, crates_out, bottles_out, notes, created_by) VALUES (?, 'Sale_Drink', ?, ?, ?, ?, ?, ?)")
+                                 ->execute([$pkgTypeId, $id, $client['id'], $item['net_crates_due'], $item['net_loose_bottles_due'], "Sortie emballages non restitués (Vente Détail $id)", $userId]);
                     }
                 }
             }

@@ -24,13 +24,34 @@ class ClientsModel {
                     COALESCE((SELECT SUM(ced.loose_bottles_due) FROM client_emballage_debts ced WHERE ced.client_id = c.id), 0) as total_bottles_due,
                     (
                         SELECT GROUP_CONCAT(
-                            CONCAT(
-                                IF(ced.crates_due > 0, CONCAT(ced.crates_due, ' c. '), ''),
-                                IF(ced.crates_due > 0 AND ced.loose_bottles_due > 0, '+ ', ''),
-                                IF(ced.loose_bottles_due > 0, CONCAT(ced.loose_bottles_due, ' btl. '), ''),
-                                '[', pt.company, ' ', pt.bottles_per_crate, ']'
+                            CONCAT_WS(' + ',
+                                IF(LEAST(ced.crates_due, FLOOR(ced.loose_bottles_due / pt.bottles_per_crate)) > 0,
+                                    CONCAT(LEAST(ced.crates_due, FLOOR(ced.loose_bottles_due / pt.bottles_per_crate)), ' casier ', pt.company, IF(pt.bottles_per_crate = 12, ' GM', ' PM')),
+                                    NULL
+                                ),
+                                CASE 
+                                    WHEN (ced.loose_bottles_due - (LEAST(ced.crates_due, FLOOR(ced.loose_bottles_due / pt.bottles_per_crate)) * pt.bottles_per_crate)) > 0 
+                                         AND (ced.crates_due - LEAST(ced.crates_due, FLOOR(ced.loose_bottles_due / pt.bottles_per_crate))) > 0 THEN
+                                        CONCAT(
+                                            (ced.loose_bottles_due - (LEAST(ced.crates_due, FLOOR(ced.loose_bottles_due / pt.bottles_per_crate)) * pt.bottles_per_crate)),
+                                            ' btls (dans ',
+                                            (ced.crates_due - LEAST(ced.crates_due, FLOOR(ced.loose_bottles_due / pt.bottles_per_crate))),
+                                            ' emb. ', pt.company, IF(pt.bottles_per_crate = 12, ' GM', ' PM'), ')'
+                                        )
+                                    WHEN (ced.loose_bottles_due - (LEAST(ced.crates_due, FLOOR(ced.loose_bottles_due / pt.bottles_per_crate)) * pt.bottles_per_crate)) > 0 THEN
+                                        CONCAT(
+                                            (ced.loose_bottles_due - (LEAST(ced.crates_due, FLOOR(ced.loose_bottles_due / pt.bottles_per_crate)) * pt.bottles_per_crate)),
+                                            ' btls'
+                                        )
+                                    WHEN (ced.crates_due - LEAST(ced.crates_due, FLOOR(ced.loose_bottles_due / pt.bottles_per_crate))) > 0 THEN
+                                        CONCAT(
+                                            (ced.crates_due - LEAST(ced.crates_due, FLOOR(ced.loose_bottles_due / pt.bottles_per_crate))),
+                                            ' emb. vide ', pt.company, IF(pt.bottles_per_crate = 12, ' GM', ' PM')
+                                        )
+                                    ELSE NULL
+                                END
                             )
-                            SEPARATOR ' '
+                            SEPARATOR ' | '
                         )
                         FROM client_emballage_debts ced
                         JOIN packaging_types pt ON ced.packaging_type_id = pt.id

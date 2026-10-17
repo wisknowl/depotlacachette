@@ -335,7 +335,7 @@ class EmballagesModel {
                 ON DUPLICATE KEY UPDATE empty_crates = empty_crates + VALUES(empty_crates), loose_bottles = loose_bottles + VALUES(loose_bottles)
             ")->execute([$packagingTypeId, $cratesReturned, $bottlesReturned]);
 
-            // 3. Decrement client debt modularly
+            // 3. Decrement client debt modularly (crates and bottles tracked independently)
             $stmtDebt = $this->db->prepare("SELECT crates_due, loose_bottles_due FROM client_emballage_debts WHERE client_id = ? AND packaging_type_id = ?");
             $stmtDebt->execute([$clientId, $packagingTypeId]);
             $curDebt = $stmtDebt->fetch();
@@ -343,15 +343,11 @@ class EmballagesModel {
             if ($curDebt) {
                 $curCrates = intval($curDebt['crates_due']);
                 $curLoose = intval($curDebt['loose_bottles_due']);
-                $curTotalBtls = ($curCrates * $factor) + $curLoose;
 
-                $returnedTotalBtls = ($cratesReturned * $factor) + $bottlesReturned;
-                $remainingTotalBtls = max(0, $curTotalBtls - $returnedTotalBtls);
+                $newCrates = max(0, $curCrates - $cratesReturned);
+                $newLoose = max(0, $curLoose - $bottlesReturned);
 
-                $newCrates = floor($remainingTotalBtls / $factor);
-                $newLoose = $remainingTotalBtls % $factor;
-
-                if ($remainingTotalBtls <= 0) {
+                if ($newCrates <= 0 && $newLoose <= 0) {
                     $this->db->prepare("DELETE FROM client_emballage_debts WHERE client_id = ? AND packaging_type_id = ?")
                              ->execute([$clientId, $packagingTypeId]);
                 } else {
@@ -404,7 +400,7 @@ class EmballagesModel {
                 WHERE packaging_type_id = ?
             ")->execute([$cratesReturned, $bottlesReturned, $packagingTypeId]);
 
-            // 3. Decrement supplier debt modularly
+            // 3. Decrement supplier debt modularly (crates and bottles tracked independently)
             $stmtDebt = $this->db->prepare("SELECT crates_due, loose_bottles_due FROM supplier_emballage_debts WHERE supplier_id = ? AND packaging_type_id = ?");
             $stmtDebt->execute([$supplierId, $packagingTypeId]);
             $curDebt = $stmtDebt->fetch();
@@ -412,19 +408,20 @@ class EmballagesModel {
             if ($curDebt) {
                 $curCrates = intval($curDebt['crates_due']);
                 $curLoose = intval($curDebt['loose_bottles_due']);
-                $curTotalBtls = ($curCrates * $factor) + $curLoose;
 
-                $returnedTotalBtls = ($cratesReturned * $factor) + $bottlesReturned;
-                $remainingTotalBtls = max(0, $curTotalBtls - $returnedTotalBtls);
+                $newCrates = max(0, $curCrates - $cratesReturned);
+                $newLoose = max(0, $curLoose - $bottlesReturned);
 
-                $newCrates = floor($remainingTotalBtls / $factor);
-                $newLoose = $remainingTotalBtls % $factor;
-
-                $this->db->prepare("
-                    UPDATE supplier_emballage_debts 
-                    SET crates_due = ?, loose_bottles_due = ? 
-                    WHERE supplier_id = ? AND packaging_type_id = ?
-                ")->execute([$newCrates, $newLoose, $supplierId, $packagingTypeId]);
+                if ($newCrates <= 0 && $newLoose <= 0) {
+                    $this->db->prepare("DELETE FROM supplier_emballage_debts WHERE supplier_id = ? AND packaging_type_id = ?")
+                             ->execute([$supplierId, $packagingTypeId]);
+                } else {
+                    $this->db->prepare("
+                        UPDATE supplier_emballage_debts 
+                        SET crates_due = ?, loose_bottles_due = ? 
+                        WHERE supplier_id = ? AND packaging_type_id = ?
+                    ")->execute([$newCrates, $newLoose, $supplierId, $packagingTypeId]);
+                }
             }
 
             $this->db->commit();

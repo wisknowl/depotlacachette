@@ -237,7 +237,7 @@
             </span>
         </div>
         <div style="font-size: 0.85rem; color: #64748B;">
-            Valorisation de la sélection : <strong style="color: var(--c-success); font-size: 0.95rem;"><?= number_format($filteredValorisation, 0, ',', ' ') ?> FCFA</strong> (<?= number_format($filteredCasiers, 1, ',', ' ') ?> emb.)
+            Valorisation de la sélection : <strong style="color: var(--c-success); font-size: 0.95rem;"><?= number_format($filteredValorisation, 0, ',', ' ') ?> FCFA</strong> (<?= number_format($filteredCasiers, 1, ',', ' ') ?> casiers eq.)
         </div>
     </div>
 
@@ -342,7 +342,7 @@
             <tfoot>
                 <tr style="background: #F1F5F9; font-weight: 700; border-top: 2px solid #CBD5E1;">
                     <td colspan="5" style="padding: 12px; text-align: right;">TOTAL INVENTAIRE SÉLECTIONNÉ :</td>
-                    <td style="padding: 12px; text-align: center; font-size: 1.1rem; color: var(--c-navy);"><?= number_format($filteredCasiers, 1, ',', ' ') ?> emb.</td>
+                    <td style="padding: 12px; text-align: center; font-size: 1.1rem; color: var(--c-navy);"><?= number_format($filteredCasiers, 1, ',', ' ') ?> casiers eq.</td>
                     <td></td>
                     <td style="padding: 12px; text-align: right; font-size: 1.1rem; color: var(--c-success);"><?= number_format($filteredValorisation, 0, ',', ' ') ?> FCFA</td>
                     <td colspan="2"></td>

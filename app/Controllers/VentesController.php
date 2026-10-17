@@ -181,6 +181,7 @@ class VentesController extends Controller {
                                 'format_type' => in_array($it['format_type'] ?? '', ['casier', 'demi', 'mixte']) ? $it['format_type'] : 'casier',
                                 'quantity' => $qty,
                                 'has_demi' => $hasDemi,
+                                'has_demi_emb' => !empty($it['has_demi_emb']),
                                 'unit_price' => floatval($it['unit_price'] ?? 0),
                                 'demi_unit_price' => floatval($it['demi_unit_price'] ?? 0),
                                 'crates_returned' => isset($it['crates_returned']) ? intval($it['crates_returned']) : 0,
@@ -198,6 +199,7 @@ class VentesController extends Controller {
                         'format_type' => in_array($_POST['format_type'] ?? '', ['casier', 'demi', 'mixte']) ? $_POST['format_type'] : 'casier',
                         'quantity' => $qty,
                         'has_demi' => $hasDemi,
+                        'has_demi_emb' => !empty($_POST['has_demi_emb']),
                         'unit_price' => floatval($_POST['unit_price'] ?? 0),
                         'demi_unit_price' => floatval($_POST['demi_unit_price'] ?? 0),
                         'crates_returned' => isset($_POST['crates_returned']) ? intval($_POST['crates_returned']) : 0,
@@ -295,6 +297,7 @@ class VentesController extends Controller {
                                 'format_type' => in_array($it['format_type'] ?? '', ['casier', 'demi', 'mixte']) ? $it['format_type'] : 'casier',
                                 'quantity' => $qty,
                                 'has_demi' => $hasDemi,
+                                'has_demi_emb' => !empty($it['has_demi_emb']),
                                 'unit_price' => floatval($it['unit_price'] ?? 0),
                                 'demi_unit_price' => floatval($it['demi_unit_price'] ?? 0),
                                 'crates_returned' => isset($it['crates_returned']) ? intval($it['crates_returned']) : 0,
@@ -371,6 +374,7 @@ class VentesController extends Controller {
                                 'quantity' => floatval($it['quantity']),
                                 'unit_price' => floatval($it['unit_price'] ?? 0),
                                 'emballage_mode' => in_array($it['emballage_mode'] ?? '', ['sur_place', 'echange', 'dette']) ? $it['emballage_mode'] : 'sur_place',
+                                'has_emb' => !empty($it['has_emb']),
                                 'bottles_returned' => isset($it['bottles_returned']) ? intval($it['bottles_returned']) : 0,
                                 'update_catalog_price' => !empty($it['update_catalog_price'])
                             ];

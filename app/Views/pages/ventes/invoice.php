@@ -113,6 +113,18 @@
             <?php if (!empty($sale['client_address'])): ?>
                 <div style="font-size: 0.85rem; color: var(--c-gray-600);">Adresse : <?= htmlspecialchars($sale['client_address']) ?></div>
             <?php endif; ?>
+            <?php if (!empty($sale['client_packaging_debts'])): ?>
+                <?php 
+                $clientDebtParts = [];
+                foreach ($sale['client_packaging_debts'] as $cpd) {
+                    $companyLabel = $cpd['packaging_company'] . ($cpd['bottles_per_crate'] == 12 ? ' GM' : ' PM');
+                    $clientDebtParts[] = \App\Core\Helper::formatEmballageDebt($cpd['crates_due'], $cpd['loose_bottles_due'], $companyLabel, $cpd['bottles_per_crate']);
+                }
+                ?>
+                <div style="font-size: 0.84rem; color: #B45309; font-weight: 700; margin-top: 6px; background: #FEF3C7; padding: 4px 10px; border-radius: 6px; border: 1px solid #FCD34D; display: inline-block;" title="Cumul total des emballages détenus par le client à ce jour">
+                    <i class='bx bx-archive'></i> Dette globale emballages client (solde à ce jour) : <?= htmlspecialchars(implode(' | ', $clientDebtParts)) ?>
+                </div>
+            <?php endif; ?>
         </div>
         <div style="text-align: right;">
             <div style="font-size: 0.78rem; text-transform: uppercase; font-weight: 800; color: #64748B; margin-bottom: 4px;">Mode de Règlement :</div>
@@ -156,21 +168,22 @@
                     $cratesRet = intval($item['crates_returned'] ?? 0);
                     $bottlesRet = intval($item['bottles_returned'] ?? 0);
                     $factor = max(1, intval($item['factor'] ?: 12));
+                    $cratesDue = max(0, $cratesOut - $cratesRet);
                     $bottlesDue = max(0, $bottlesOut - ($cratesRet * $factor + $bottlesRet));
-                    $cratesDue = floor($bottlesDue / $factor);
-                    $looseDue = $bottlesDue % $factor;
 
-                    if ($isRet && $bottlesDue > 0) {
+                    if ($isRet && ($cratesDue > 0 || $bottlesDue > 0)) {
                         $code = !empty($item['short_code']) ? $item['short_code'] : $item['product_name'];
                         if (!isset($debtsByProduct[$item['product_id']])) {
                             $debtsByProduct[$item['product_id']] = [
                                 'code' => $code,
                                 'name' => $item['product_name'],
                                 'factor' => $factor,
-                                'missingBottles' => 0
+                                'cratesDue' => 0,
+                                'bottlesDue' => 0
                             ];
                         }
-                        $debtsByProduct[$item['product_id']]['missingBottles'] += $bottlesDue;
+                        $debtsByProduct[$item['product_id']]['cratesDue'] += $cratesDue;
+                        $debtsByProduct[$item['product_id']]['bottlesDue'] += $bottlesDue;
                     }
                 ?>
                 <tr style="border-bottom: 1px solid #E2E8F0;">
@@ -182,14 +195,9 @@
                         <?php endif; ?>
                         <strong><?= htmlspecialchars($item['product_name']) ?></strong>
                         <div style="font-size: 0.78rem; color: #64748B;"><?= htmlspecialchars($item['category_name'] ?? '') ?> &bull; <?= htmlspecialchars($item['format_name'] ?? '') ?></div>
-                        <?php if ($isRet && $bottlesDue > 0): ?>
-                            <?php 
-                                $dueText = '';
-                                if ($cratesDue > 0) $dueText .= $cratesDue . ' casier(s)';
-                                if ($looseDue > 0) $dueText .= ($cratesDue > 0 ? ' + ' : '') . $looseDue . ' btl(s)';
-                            ?>
+                        <?php if ($isRet && ($cratesDue > 0 || $bottlesDue > 0)): ?>
                             <div style="font-size: 0.75rem; color: #D97706; font-weight: 700; margin-top: 3px;">
-                                ⚠️ Dette Emballage : <?= $dueText ?>
+                                ⚠️ Dette Emballage : <?= htmlspecialchars(\App\Core\Helper::formatEmballageDebt($cratesDue, $bottlesDue, '', $factor)) ?>
                             </div>
                         <?php elseif ($isRet && ($cratesRet > 0 || $bottlesRet > 0)): ?>
                             <div style="font-size: 0.75rem; color: #16A34A; font-weight: 600; margin-top: 3px;">
@@ -258,14 +266,10 @@
                     <div style="margin-top: 5px; display: flex; flex-wrap: wrap; gap: 6px;">
                         <?php foreach ($debtsByProduct as $d): ?>
                             <?php 
-                                $cDue = floor($d['missingBottles'] / $d['factor']);
-                                $bDue = $d['missingBottles'] % $d['factor'];
-                                $text = '';
-                                if ($cDue > 0) $text .= $cDue . ' c.';
-                                if ($bDue > 0) $text .= ($cDue > 0 ? ' + ' : '') . $bDue . ' btl(s)';
+                                $text = \App\Core\Helper::formatEmballageDebt($d['cratesDue'], $d['bottlesDue'], '', $d['factor']);
                             ?>
                             <span style="padding: 2px 8px; background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; border-radius: 4px; font-size: 0.78rem; font-weight: 700;">
-                                <?= $text ?> [<?= htmlspecialchars($d['code']) ?>]
+                                <?= htmlspecialchars($text) ?> [<?= htmlspecialchars($d['code']) ?>]
                             </span>
                         <?php endforeach; ?>
                     </div>
